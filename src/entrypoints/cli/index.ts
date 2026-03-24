@@ -2,12 +2,12 @@
 
 import "dotenv/config";
 import { Command } from "commander";
-import { VERSION } from "./env.js";
-import { githubProfile } from "./commands/github-profile.js";
-import { scanRepos } from "./commands/scan-repos.js";
-import { gitLog } from "./commands/git-log.js";
-import { analyze } from "./commands/analyze.js";
-import { publish } from "./commands/publish.js";
+import { VERSION } from "../../env.js";
+import { githubProfile } from "../../commands/github-profile.js";
+import { scanRepos } from "../../commands/scan-repos.js";
+import { gitLog } from "../../commands/git-log.js";
+import { analyze } from "../../commands/analyze.js";
+import { publish } from "../../commands/publish.js";
 
 function handleError(err: unknown): never {
   const e = err as { message?: string };
@@ -70,7 +70,10 @@ program
     "Full profile analysis with AI — scans a local directory, optionally fetches GitHub data"
   )
   .argument("[username]", "GitHub username for remote data")
-  .option("--dir <dir>", "Directory to scan for git repositories (defaults to cwd)")
+  .option(
+    "--dir <dir>",
+    "Directory to scan for git repositories (defaults to cwd)"
+  )
   .option("-p, --provider <name>", "LLM provider (anthropic or openai)")
   .option("-m, --model <model>", "LLM model override")
   .option("-o, --output <file>", "Write JSON to file instead of stdout")

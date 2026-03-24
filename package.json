@@ -5,7 +5,7 @@
   "license": "MIT",
   "type": "module",
   "bin": {
-    "topsignal": "./dist/cli.js"
+    "topsignal": "dist/entrypoints/cli/index.js"
   },
   "files": [
     "dist"
