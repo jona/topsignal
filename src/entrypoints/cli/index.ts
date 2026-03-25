@@ -79,6 +79,8 @@ program
   .option("-o, --output <file>", "Write JSON to file instead of stdout")
   .option("--prompts <dir>", "Directory with custom prompt templates")
   .option("-d, --depth <n>", "Max directory depth to scan", "3")
+  .option("--exclude <patterns>", "Comma-separated repo names or patterns to exclude from scanning")
+  .option("-y, --yes", "Skip confirmation prompt before sending data to LLM")
   .option("--stats", "Print analysis statistics after completion")
   .option("--repos <n>", "Max repos to fetch from GitHub")
   .option("--starred <n>", "Max starred repos to fetch")
@@ -100,6 +102,8 @@ program
         output?: string;
         prompts?: string;
         depth?: string;
+        exclude?: string;
+        yes?: boolean;
         stats?: boolean;
         repos?: string;
         starred?: string;
@@ -123,6 +127,8 @@ program
           output: opts?.output,
           prompts: opts?.prompts,
           depth: opts?.depth ? parseInt(opts.depth, 10) : 3,
+          exclude: opts?.exclude?.split(",").map((s) => s.trim()).filter(Boolean),
+          yes: opts?.yes,
           stats: opts?.stats,
           limits: {
             repos: int(opts?.repos),

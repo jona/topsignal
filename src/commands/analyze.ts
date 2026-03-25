@@ -1,5 +1,6 @@
-import { resolve } from "node:path";
+import { resolve, relative } from "node:path";
 import { writeFileSync } from "node:fs";
+import { createInterface } from "node:readline";
 import { getGhToken } from "../github/auth.js";
 import { fetchGithubData } from "../github/fetcher/index.js";
 import { resolveLimits, type FetchLimits } from "../limits.js";
@@ -24,8 +25,32 @@ export interface AnalyzeOptions {
   output?: string;
   prompts?: string;
   depth?: number;
+  exclude?: string[];
+  yes?: boolean;
   stats?: boolean;
   limits?: Partial<FetchLimits>;
+}
+
+async function confirmSend(
+  blobCount: number,
+  depCount: number,
+  repoCount: number,
+  providerName: string
+): Promise<boolean> {
+  const rl = createInterface({ input: process.stdin, output: process.stderr });
+  const lines = [
+    chalk.yellow("\nAbout to send to " + providerName + " API:"),
+    `  - ${blobCount} source code file(s) from ${repoCount} local repo(s)`,
+    `  - ${depCount} dependency manifest(s)`,
+    "",
+  ];
+  for (const l of lines) process.stderr.write(l + "\n");
+  return new Promise((resolve) => {
+    rl.question("Continue? [y/N] ", (answer) => {
+      rl.close();
+      resolve(answer.trim().toLowerCase() === "y");
+    });
+  });
 }
 
 export async function analyze(opts: AnalyzeOptions) {
@@ -56,7 +81,7 @@ export async function analyze(opts: AnalyzeOptions) {
   if (dir) {
     const scannedRepos = await withSpinner(
       `Scanning ${dir} for git repositories (depth: ${depth})`,
-      () => Promise.resolve(scanForRepos(dir, depth))
+      () => Promise.resolve(scanForRepos(dir, depth, opts.exclude))
     );
 
     repoSummaries = await withSpinner(
@@ -127,12 +152,35 @@ export async function analyze(opts: AnalyzeOptions) {
   statsRemoteRepos = wave1.repos.map((r) => r.name);
   statsLocalRepos = repoSummaries.map((r) => r.name);
 
+  // Consent check before sending data to LLM
+  if (llm && !opts.yes) {
+    const ok = await confirmSend(
+      wave2.codeBlobs.length,
+      wave2.dependencyFiles.length,
+      repoSummaries.length + wave1.repos.length,
+      llm.name
+    );
+    if (!ok) {
+      ora({ stream: process.stderr }).warn(chalk.yellow("Aborted by user"));
+      process.exit(0);
+    }
+  }
+
   const profile = await runPipeline({
     wave1,
     wave2,
     llm,
     model: opts.model,
   });
+
+  // Strip absolute filesystem paths from local repo data
+  if (dir && "repos" in profile && Array.isArray((profile as any).repos)) {
+    for (const repo of (profile as any).repos) {
+      if (typeof repo.path === "string" && repo.path.startsWith("/")) {
+        repo.path = relative(dir, repo.path) || repo.name;
+      }
+    }
+  }
 
   const json = JSON.stringify(profile, null, 2);
 
