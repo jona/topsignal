@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.4
+
+### Features
+
+- Add `login` command — authenticate with GitHub via OAuth device flow
+- Add `logout` command — remove stored GitHub credentials
+- Add GitHub OAuth device flow module with polling, token persistence (`~/.topsignal/auth.json`), and file-level permissions (0600)
+- Update `publish` command to use stored auth instead of `gh` CLI token
+
+### Breaking Changes
+
+- `publish` now requires `topsignal login` instead of relying on `GH_TOKEN` or `gh auth token`
+
 ## 0.1.3
 
 ### Privacy & Security
