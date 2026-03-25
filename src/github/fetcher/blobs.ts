@@ -33,6 +33,27 @@ const EXCLUDE_PATTERNS = [
   /fixtures/i,
   /migrations/i,
   /vendor/i,
+  // Sensitive files — never fetch or send to LLM
+  /\.env/i,
+  /credentials/i,
+  /secrets?\./i,
+  /\.pem$/i,
+  /\.key$/i,
+  /\.cert$/i,
+  /\.p12$/i,
+  /\.pfx$/i,
+  /\.keystore$/i,
+  /\.jks$/i,
+  /\.htpasswd$/i,
+  /id_rsa/i,
+  /id_ed25519/i,
+  /id_ecdsa/i,
+  /[\\/.]token[\\/.]|[\\/.]token$/i,
+  /auth\.json$/i,
+  /\.netrc$/i,
+  /service.account/i,
+  /\.npmrc$/i,
+  /\.pypirc$/i,
 ];
 
 const EXT_TO_LANGUAGE: Record<string, string> = {
