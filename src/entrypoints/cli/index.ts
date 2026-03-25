@@ -8,6 +8,8 @@ import { scanRepos } from "../../commands/scan-repos.js";
 import { gitLog } from "../../commands/git-log.js";
 import { analyze } from "../../commands/analyze.js";
 import { publish } from "../../commands/publish.js";
+import { login } from "../../commands/login.js";
+import { logout } from "../../commands/logout.js";
 
 function handleError(err: unknown): never {
   const e = err as { message?: string };
@@ -148,6 +150,28 @@ program
       }
     }
   );
+
+program
+  .command("login")
+  .description("Authenticate with GitHub via device flow")
+  .action(async () => {
+    try {
+      await login();
+    } catch (err) {
+      handleError(err);
+    }
+  });
+
+program
+  .command("logout")
+  .description("Remove stored GitHub credentials")
+  .action(() => {
+    try {
+      logout();
+    } catch (err) {
+      handleError(err);
+    }
+  });
 
 program
   .command("publish")

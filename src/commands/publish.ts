@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import chalk from "chalk";
 import ora from "ora";
 import { PUBLISH_ENDPOINT } from "../env.js";
-import { getGhToken, getGhUsername } from "../github/auth.js";
+import { loadAuth } from "../github/device-flow.js";
 import { withSpinner } from "../ui/spinner.js";
 
 export interface PublishOptions {
@@ -10,8 +10,15 @@ export interface PublishOptions {
 }
 
 export async function publish(file: string, opts: PublishOptions) {
-  const token = getGhToken();
-  const username = opts.username ?? (await getGhUsername(token));
+  const auth = loadAuth();
+  if (!auth) {
+    throw new Error(
+      `Not logged in. Run ${chalk.cyan("topsignal login")} first.`
+    );
+  }
+
+  const token = auth.access_token;
+  const username = opts.username ?? auth.username;
 
   const raw = await withSpinner(`Reading ${file}`, async () => {
     const content = readFileSync(file, "utf-8");

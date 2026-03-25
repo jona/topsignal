@@ -21,9 +21,19 @@ export const DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6";
 export const DEFAULT_OPENAI_MODEL = "gpt-4o";
 export const DEFAULT_MAX_TOKENS = 16384;
 
+// ─── GitHub OAuth ───────────────────────────────────────────────────────────
+
+export const GITHUB_CLIENT_ID = "Ov23lirRfn65fs2HQlgP";
+export const GITHUB_DEVICE_CODE_URL =
+  "https://github.com/login/device/code";
+export const GITHUB_ACCESS_TOKEN_URL =
+  "https://github.com/login/oauth/access_token";
+export const GITHUB_DEVICE_SCOPE = "";
+
 // ─── Paths ──────────────────────────────────────────────────────────────────
 
 export const DEFAULT_PROMPTS_DIR = join(homedir(), ".topsignal", "prompts");
+export const AUTH_TOKEN_PATH = join(homedir(), ".topsignal", "auth.json");
 
 // ─── Env vars ───────────────────────────────────────────────────────────────
 
