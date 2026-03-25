@@ -2,6 +2,14 @@
 
 ## 0.1.1
 
+### Fixes
+
+- Update `VERSION` constant to match 0.1.1 release
+
+### Docs
+
+- Update README with current CLI features and configuration
+
 ### Refactors
 
 - Replace `process.stderr.write` output with `ora` spinners and `chalk` styling in `git-log` and `scan-repos` commands
