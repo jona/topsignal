@@ -69,7 +69,7 @@ program
   .description(
     "Full profile analysis with AI — scans a local directory, optionally fetches GitHub data"
   )
-  .argument("[username]", "GitHub username for remote data")
+  .argument("<username>", "GitHub username for remote data")
   .option(
     "--dir <dir>",
     "Directory to scan for git repositories (defaults to cwd)"
@@ -92,7 +92,7 @@ program
   .option("--files-per-blob <n>", "Code files to fetch per blob repo")
   .action(
     async (
-      username: string | undefined,
+      username: string,
       opts?: {
         dir?: string;
         provider?: string;

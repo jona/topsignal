@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.2
+
+### Breaking Changes
+
+- `username` argument is now required for the `analyze` command (previously optional)
+
+### Refactors
+
+- Remove local-only analysis mode — `analyze` always fetches GitHub data now
+- Remove unused imports (`getGhUsername`, `analyzeKnowledge`, `LocalProfile`)
+
 ## 0.1.1
 
 ### Fixes
