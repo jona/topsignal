@@ -16,12 +16,17 @@ npm install -g topsignal
 
 ## Auth
 
-**GitHub** (required for `publish` and when passing a username to `analyze` or `github-profile`) — uses the first available source:
+### GitHub
 
-1. `GITHUB_TOKEN` environment variable
-2. `gh auth token` (zero-config if you have the [GitHub CLI](https://cli.github.com/) installed)
+A GitHub token is required for the `analyze`, `publish`, and `github-profile` commands. The first available source is used:
 
-**LLM** — auto-detects from environment:
+1. `topsignal login` — OAuth device flow, no API key needed (recommended)
+2. `GITHUB_TOKEN` environment variable
+3. `gh auth token` (zero-config if you have the [GitHub CLI](https://cli.github.com/) installed)
+
+### LLM
+
+Auto-detected from environment:
 
 - `ANTHROPIC_API_KEY` → Claude (default model: `claude-sonnet-4-6`)
 - `OPENAI_API_KEY` → OpenAI (default model: `gpt-4o`)
@@ -30,15 +35,35 @@ If no LLM key is found, the tool still runs and returns raw profile data without
 
 ## Commands
 
-### `analyze [username]`
+### `login`
 
-Scans a local directory for git repositories and runs AI analysis. Pass a GitHub username to also fetch public GitHub profile data.
+Authenticate with GitHub using the OAuth device flow. Opens a browser prompt — no API key required. This verifies you own the GitHub username so you can publish profiles under it.
 
 ```bash
-# Local only — no GitHub required
-topsignal analyze --dir ~/Code
+topsignal login
+```
 
-# Local + GitHub
+Credentials are stored in `~/.topsignal/auth.json` (file permissions `0600`).
+
+### `logout`
+
+Remove stored GitHub credentials.
+
+```bash
+topsignal logout
+```
+
+---
+
+### `analyze <username>`
+
+Fetches GitHub data and optionally scans a local directory for git repositories, then runs AI analysis.
+
+```bash
+# GitHub only
+topsignal analyze torvalds
+
+# GitHub + local repos
 topsignal analyze torvalds --dir ~/Code
 
 # With options
@@ -47,15 +72,17 @@ topsignal analyze torvalds --dir ~/Code --output profile.json --depth 5 --stats
 
 | Flag                    | Description                                                          |
 | ----------------------- | -------------------------------------------------------------------- |
-| `--dir <dir>`           | Directory to scan for git repositories (defaults to cwd)             |
+| `--dir <dir>`           | Directory to scan for git repositories (defaults to none)            |
 | `-p, --provider <name>` | `anthropic` or `openai`                                              |
 | `-m, --model <model>`   | Override the default model                                           |
 | `-o, --output <file>`   | Write JSON to a file instead of stdout                               |
 | `-d, --depth <n>`       | Max directory depth to scan (default: `3`)                           |
+| `--exclude <patterns>`  | Comma-separated repo names or patterns to exclude from scanning      |
+| `-y, --yes`             | Skip confirmation prompt before sending data to LLM                  |
 | `--prompts <dir>`       | Directory with custom prompt templates                               |
 | `--stats`               | Print a rich statistics panel after completion (see [Stats](#stats)) |
 
-**GitHub fetching limits** — control how much data is pulled from GitHub when a username is provided:
+**GitHub fetching limits** — control how much data is pulled from GitHub:
 
 | Flag                     | Description                          | Default |
 | ------------------------ | ------------------------------------ | ------- |
@@ -72,9 +99,7 @@ topsignal analyze torvalds --dir ~/Code --output profile.json --depth 5 --stats
 
 These limits can also be set via environment variables or a config file (see [Configuration](#configuration)).
 
-**Without a username** — outputs a `LocalProfile` with per-repo git history, authors, branches, dependency files, and AI knowledge analysis.
-
-**With a username** — outputs a full `DeveloperProfile` combining GitHub data with local code blobs from repos not already fetched via the API.
+**Consent prompt** — before sending code to the LLM, the tool shows which repos and how many files will be sent. Pass `-y` to skip.
 
 Progress messages go to stderr; JSON output goes to stdout.
 
@@ -124,7 +149,7 @@ topsignal git-log ~/Code/myproject --commits 500 --blobs 30
 
 ### `publish <file>`
 
-Publish a profile JSON to the TopSignal API. On success, prints the public profile URL.
+Publish a profile JSON to the TopSignal API. Requires `topsignal login` first — this ensures you can only publish under a GitHub username you own.
 
 ```bash
 topsignal publish profile.json
@@ -134,38 +159,23 @@ topsignal publish profile.json --username torvalds
 
 | Flag                        | Description                                                         |
 | --------------------------- | ------------------------------------------------------------------- |
-| `-u, --username <username>` | Username to publish as (auto-detected from GitHub token if omitted) |
+| `-u, --username <username>` | Username to publish as (auto-detected from login session if omitted) |
+
+## Privacy & Security
+
+TopSignal is designed to be privacy-first:
+
+- **Consent prompt** — before any code is sent to an LLM, you see exactly what will be shared and must confirm (or pass `-y`)
+- **Secret scanning** — code files are scanned for API keys, tokens, private keys, connection strings, and other credentials before being sent anywhere
+- **Credential redaction** — detected secrets are replaced with `[REDACTED]`
+- **Remote URL sanitization** — credentials embedded in git remote URLs are stripped
+- **Sensitive file exclusion** — files like `.env`, credentials, and key files are excluded from code blob fetching
+- **Path stripping** — absolute filesystem paths are removed from the output JSON
+- **`.topsignalignore`** — place in your scan root to exclude repos by name or glob pattern (one per line, `#` comments supported)
 
 ## Output shape
 
-**Local-only** (`analyze --dir <dir>`) outputs a `LocalProfile`:
-
-```jsonc
-{
-  "dir": "/Users/you/Code",
-  "repos": [
-    {
-      "name": "myproject",
-      "path": "/Users/you/Code/myproject",
-      "remote": "git@github.com:you/myproject.git",
-      "totalCommits": 312,
-      "firstCommitDate": "2023-01-15T...",
-      "lastCommitDate": "2025-03-20T...",
-      "authors": [{ "name": "You", "commits": 310 }],
-      "branches": [...],
-      "commits": [...],
-      "dependencyFiles": { "packageJson": "...", ... },
-      "codeBlobs": [...]
-    }
-  ],
-  "analysis": {
-    "knowledge": { "techStack": [...], "architecturePatterns": [...], ... }
-  },
-  "analyzedAt": "2025-01-01T00:00:00.000Z"
-}
-```
-
-**With a username** outputs a full `DeveloperProfile`:
+`analyze` outputs a `DeveloperProfile`:
 
 ```jsonc
 {
