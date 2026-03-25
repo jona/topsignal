@@ -1,5 +1,19 @@
 import { spawnSync } from "node:child_process";
 
+function sanitizeRemoteUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    if (u.username || u.password) {
+      u.username = "";
+      u.password = "";
+      return u.toString();
+    }
+    return url;
+  } catch {
+    return url.replace(/\/\/[^@]+@/, "//");
+  }
+}
+
 export interface LocalCommit {
   sha: string;
   message: string;
@@ -102,7 +116,8 @@ export function getGitLog(
 ): GitLogResult {
   const repoName = repoPath.split("/").filter(Boolean).pop() ?? "unknown";
 
-  const remote = git(repoPath, ["remote", "get-url", "origin"]);
+  const rawRemote = git(repoPath, ["remote", "get-url", "origin"]);
+  const remote = rawRemote ? sanitizeRemoteUrl(rawRemote) : null;
   const defaultBranch =
     git(repoPath, ["symbolic-ref", "--short", "HEAD"]) ??
     git(repoPath, ["rev-parse", "--abbrev-ref", "HEAD"]);

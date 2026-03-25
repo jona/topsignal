@@ -1,6 +1,20 @@
-import { readdirSync, statSync } from "node:fs";
+import { readdirSync, statSync, existsSync, readFileSync } from "node:fs";
 import { join, basename } from "node:path";
 import { spawnSync } from "node:child_process";
+
+function sanitizeRemoteUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    if (u.username || u.password) {
+      u.username = "";
+      u.password = "";
+      return u.toString();
+    }
+    return url;
+  } catch {
+    return url.replace(/\/\/[^@]+@/, "//");
+  }
+}
 
 export interface ScannedRepo {
   path: string;
@@ -21,7 +35,8 @@ function gitCmd(repoPath: string, args: string[]): string | null {
 }
 
 function getRepoMeta(repoPath: string): ScannedRepo {
-  const remote = gitCmd(repoPath, ["remote", "get-url", "origin"]);
+  const rawRemote = gitCmd(repoPath, ["remote", "get-url", "origin"]);
+  const remote = rawRemote ? sanitizeRemoteUrl(rawRemote) : null;
   const lastLog = gitCmd(repoPath, ["log", "-1", "--format=%aI|||%s"]);
   const branch =
     gitCmd(repoPath, ["symbolic-ref", "--short", "HEAD"]) ??
@@ -46,11 +61,35 @@ function getRepoMeta(repoPath: string): ScannedRepo {
   };
 }
 
+function loadIgnorePatterns(rootDir: string): string[] {
+  const ignorePath = join(rootDir, ".topsignalignore");
+  if (!existsSync(ignorePath)) return [];
+  try {
+    return readFileSync(ignorePath, "utf-8")
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l && !l.startsWith("#"));
+  } catch {
+    return [];
+  }
+}
+
+function matchesIgnore(repoPath: string, rootDir: string, patterns: string[]): boolean {
+  const rel = repoPath.slice(rootDir.length + 1);
+  const name = basename(repoPath);
+  return patterns.some((p) => {
+    if (p.includes("/")) return rel.includes(p);
+    return name === p || name.match(new RegExp(`^${p.replace(/\*/g, ".*")}$`)) !== null;
+  });
+}
+
 export function scanForRepos(
   rootDir: string,
-  maxDepth: number = 3
+  maxDepth: number = 3,
+  excludePatterns: string[] = []
 ): ScannedRepo[] {
   const repos: ScannedRepo[] = [];
+  const ignorePatterns = [...loadIgnorePatterns(rootDir), ...excludePatterns];
 
   function walk(dir: string, depth: number) {
     if (depth > maxDepth) return;
@@ -66,6 +105,9 @@ export function scanForRepos(
       try {
         const gitStat = statSync(join(dir, ".git"));
         if (gitStat.isDirectory()) {
+          if (ignorePatterns.length > 0 && matchesIgnore(dir, rootDir, ignorePatterns)) {
+            return; // excluded by .topsignalignore or --exclude
+          }
           repos.push(getRepoMeta(dir));
           return; // don't descend into git repos
         }
