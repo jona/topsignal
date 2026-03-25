@@ -34,16 +34,29 @@ export interface AnalyzeOptions {
 async function confirmSend(
   blobCount: number,
   depCount: number,
-  repoCount: number,
+  localRepos: string[],
+  remoteRepos: string[],
   providerName: string
 ): Promise<boolean> {
   const rl = createInterface({ input: process.stdin, output: process.stderr });
+  const totalRepos = localRepos.length + remoteRepos.length;
   const lines = [
-    chalk.yellow("\nAbout to send to " + providerName + " API:"),
-    `  - ${blobCount} source code file(s) from ${repoCount} local repo(s)`,
+    chalk.yellow(
+      "\nAbout to send to " + providerName + " using your API keys:"
+    ),
+    `  - ${blobCount} source code file(s) from ${totalRepos} repo(s)`,
     `  - ${depCount} dependency manifest(s)`,
     "",
   ];
+  if (remoteRepos.length > 0) {
+    lines.push(chalk.dim("  GitHub repos:"));
+    for (const name of remoteRepos) lines.push(chalk.dim(`    - ${name}`));
+  }
+  if (localRepos.length > 0) {
+    lines.push(chalk.dim("  Local repos:"));
+    for (const name of localRepos) lines.push(chalk.dim(`    - ${name}`));
+  }
+  lines.push("");
   for (const l of lines) process.stderr.write(l + "\n");
   return new Promise((resolve) => {
     rl.question("Continue? [y/N] ", (answer) => {
@@ -157,7 +170,8 @@ export async function analyze(opts: AnalyzeOptions) {
     const ok = await confirmSend(
       wave2.codeBlobs.length,
       wave2.dependencyFiles.length,
-      repoSummaries.length + wave1.repos.length,
+      statsLocalRepos,
+      statsRemoteRepos,
       llm.name
     );
     if (!ok) {
@@ -193,7 +207,12 @@ export async function analyze(opts: AnalyzeOptions) {
   }
 
   if (opts.stats) {
-    const stats = computeStats(statsBlobs, statsDeps, statsLocalRepos, statsRemoteRepos);
+    const stats = computeStats(
+      statsBlobs,
+      statsDeps,
+      statsLocalRepos,
+      statsRemoteRepos
+    );
     await renderStats(stats);
   }
 }
