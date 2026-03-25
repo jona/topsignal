@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { join, extname, basename } from "node:path";
 import type { RepoDependencyData, CodeBlob } from "../types.js";
+import { scanForSecrets, redactSecrets } from "./secrets.js";
 
 // ─── Dependency files ───────────────────────────────────────────────────────
 
@@ -22,6 +23,36 @@ function dirExists(path: string): boolean {
   }
 }
 
+function sanitizePackageJson(raw: string | null): string | null {
+  if (!raw) return null;
+  try {
+    const obj = JSON.parse(raw);
+    delete obj.author;
+    delete obj.contributors;
+    delete obj.publishConfig;
+    delete obj.bugs;
+    return JSON.stringify(obj, null, 2);
+  } catch {
+    return raw;
+  }
+}
+
+function sanitizeDockerfile(raw: string | null): string | null {
+  if (!raw) return null;
+  return raw.replace(
+    /^(ARG|ENV)\s+\w*(PASSWORD|SECRET|TOKEN|KEY|CREDENTIAL)\w*\s*=.*/gim,
+    "$1 $2=[REDACTED]"
+  );
+}
+
+function sanitizeDockerCompose(raw: string | null): string | null {
+  if (!raw) return null;
+  return raw.replace(
+    /^(\s*\w*(PASSWORD|SECRET|TOKEN|KEY|CREDENTIAL)\w*\s*:\s*).+$/gim,
+    "$1[REDACTED]"
+  );
+}
+
 export function readDependencyFiles(repoPath: string): RepoDependencyData {
   const repoName = basename(repoPath);
   const r = (file: string, max: number) => readFile(join(repoPath, file), max);
@@ -33,7 +64,7 @@ export function readDependencyFiles(repoPath: string): RepoDependencyData {
 
   return {
     repoName,
-    packageJson: r("package.json", 8000),
+    packageJson: sanitizePackageJson(r("package.json", 8000)),
     pyproject: r("pyproject.toml", 4000),
     requirements: r("requirements.txt", 3000),
     goMod: r("go.mod", 3000),
@@ -41,8 +72,8 @@ export function readDependencyFiles(repoPath: string): RepoDependencyData {
     gemfile: r("Gemfile", 3000),
     composerJson: r("composer.json", 4000),
     readme: r("README.md", 3000),
-    dockerfile: r("Dockerfile", 3000),
-    dockerCompose: r("docker-compose.yml", 3000),
+    dockerfile: sanitizeDockerfile(r("Dockerfile", 3000)),
+    dockerCompose: sanitizeDockerCompose(r("docker-compose.yml", 3000)),
     openapi: openapiText,
     securityMd: r("SECURITY.md", 2000),
     changelogMd: r("CHANGELOG.md", 2000),
@@ -111,7 +142,12 @@ const EXCLUDE_PATTERNS = [
   /id_rsa/i,
   /id_ed25519/i,
   /id_ecdsa/i,
-  /token/i,
+  /[\\/.]token[\\/.]|[\\/.]token$/i,
+  /\.npmrc$/i,
+  /\.pypirc$/i,
+  /application\.ya?ml$/i,
+  /application\.properties$/i,
+  /local_settings\.py$/i,
   /auth\.json$/i,
   /\.netrc$/i,
   /service.account/i,
@@ -229,12 +265,15 @@ export function readCodeBlobs(
     const content = readFile(join(repoPath, candidate.relativePath));
     if (!content) continue;
 
+    const secrets = scanForSecrets(content);
+    const safeContent = secrets.length > 0 ? redactSecrets(content) : content;
+
     const ext = extname(candidate.relativePath).toLowerCase();
     blobs.push({
       repoName,
       path: candidate.relativePath,
       language: EXT_TO_LANGUAGE[ext] ?? ext.slice(1).toUpperCase(),
-      content,
+      content: safeContent,
     });
   }
 
