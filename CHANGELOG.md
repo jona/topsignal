@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.1.3
+
+### Privacy & Security
+
+- Add content-level secret scanning for code blobs — redacts API keys, private keys, connection strings, JWTs, and hardcoded passwords before sending to LLMs
+- Sanitize dependency files before LLM transmission — strip `author`/`contributors`/`publishConfig` from package.json, redact secret ARG/ENV from Dockerfiles and docker-compose.yml
+- Sanitize git remote URLs to strip embedded credentials (e.g. `https://token@github.com/...`)
+- Add sensitive-file exclusion patterns to GitHub blob fetcher (`.env`, `credentials`, `.pem`, `.key`, `.npmrc`, `.pypirc`, etc.)
+- Strip absolute filesystem paths from local repo entries in output JSON
+- Add user consent prompt before sending data to LLM APIs — displays summary and requires confirmation (skip with `--yes`/`-y`)
+- List each repo by name in consent prompt, labeled as GitHub or Local
+- Refine `/token/i` file exclusion to avoid false positives on files like `tokenizer.ts`; add `.npmrc`, `.pypirc`, `application.yml`, `application.properties`, `local_settings.py` to exclusions
+
+### Features
+
+- Add `.topsignalignore` file support — place in the scan root to exclude repos by name or glob pattern
+- Add `--exclude <patterns>` CLI flag for comma-separated repo exclusion patterns
+- Add `--yes`/`-y` CLI flag to skip the LLM consent prompt
+
 ## 0.1.2
 
 ### Breaking Changes

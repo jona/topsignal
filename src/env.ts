@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 
 // ─── Package ────────────────────────────────────────────────────────────────
 
-export const VERSION = "0.1.2";
+export const VERSION = "0.1.3";
 export const USER_AGENT = `topsignal-cli/${VERSION}`;
 
 // ─── URLs ───────────────────────────────────────────────────────────────────
