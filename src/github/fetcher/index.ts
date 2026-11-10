@@ -45,7 +45,9 @@ export async function fetchGithubData(
   );
 
   const gqlUser = firstPage.user;
-  const allGQLRepos = gqlUser.repositories.nodes;
+  const allGQLRepos = gqlUser.repositories.nodes.filter(
+    (repo) => repo?.visibility === "PUBLIC"
+  );
   const repos = allGQLRepos.map(mapRepo);
   const ownRepos = repos.filter((r) => !r.fork);
 
@@ -109,26 +111,31 @@ export async function fetchGithubData(
 
   const externalPRs = searchData.externalPRs.nodes
     .filter(
-      (n) => n.title && !n.repository?.nameWithOwner.startsWith(`${username}/`)
+      (n) =>
+        n?.title &&
+        n.repository?.visibility === "PUBLIC" &&
+        !n.repository.nameWithOwner.startsWith(`${username}/`)
     )
     .map(mapSearchIssue);
 
   const issuesOpened = searchData.issuesOpened.nodes
-    .filter((n) => n.title)
+    .filter((n) => n?.title && n.repository?.visibility === "PUBLIC")
     .map(mapSearchIssue);
 
   const issuesResolved = searchData.issuesResolved.nodes
-    .filter((n) => n.title)
+    .filter((n) => n?.title && n.repository?.visibility === "PUBLIC")
     .map(mapSearchIssue);
 
-  const pinnedRepos = (gqlUser.pinnedItems?.nodes ?? []).map((p) => ({
-    name: p.name,
-    fullName: p.nameWithOwner,
-    description: p.description,
-    language: p.primaryLanguage?.name ?? null,
-    stars: p.stargazerCount,
-    topics: p.repositoryTopics.nodes.map((t) => t.topic.name),
-  }));
+  const pinnedRepos = (gqlUser.pinnedItems?.nodes ?? [])
+    .filter((repo) => repo?.visibility === "PUBLIC")
+    .map((p) => ({
+      name: p.name,
+      fullName: p.nameWithOwner,
+      description: p.description,
+      language: p.primaryLanguage?.name ?? null,
+      stars: p.stargazerCount,
+      topics: p.repositoryTopics.nodes.map((t) => t.topic.name),
+    }));
 
   const contributionCalendar = {
     weeks: (contrib.contributionCalendar?.weeks ?? []).map((w) => ({
@@ -141,10 +148,11 @@ export async function fetchGithubData(
 
   const codeReviews = {
     count: contrib.totalPullRequestReviewContributions,
-    recent: contrib.pullRequestReviewContributions.nodes.map((n) => ({
-      repo: n.pullRequest.repository.nameWithOwner,
-      submittedAt: n.occurredAt,
-    })),
+    recent: contrib.pullRequestReviewContributions.nodes.flatMap((review) => {
+      const repo = review?.pullRequest?.repository;
+      if (repo?.visibility !== "PUBLIC") return [];
+      return [{ repo: repo.nameWithOwner, submittedAt: review.occurredAt }];
+    }),
   };
 
   const contributionCounts = {
@@ -175,16 +183,18 @@ export async function fetchGithubData(
 
   const contributedRepos: GithubContributedRepo[] = (
     gqlUser.repositoriesContributedTo?.nodes ?? []
-  ).map((r) => ({
-    fullName: r.nameWithOwner,
-    description: r.description,
-    url: r.url,
-    language: r.primaryLanguage?.name ?? null,
-    stars: r.stargazerCount,
-    forks: r.forkCount,
-    isOrg: r.isInOrganization,
-    owner: r.owner.login,
-  }));
+  )
+    .filter((repo) => repo?.visibility === "PUBLIC")
+    .map((r) => ({
+      fullName: r.nameWithOwner,
+      description: r.description,
+      url: r.url,
+      language: r.primaryLanguage?.name ?? null,
+      stars: r.stargazerCount,
+      forks: r.forkCount,
+      isOrg: r.isInOrganization,
+      owner: r.owner.login,
+    }));
 
   const sponsorship = {
     hasListing: gqlUser.hasSponsorsListing ?? false,
@@ -197,7 +207,9 @@ export async function fetchGithubData(
     repos,
     repoLanguageMap,
     gists,
-    starred: gqlUser.starredRepositories.nodes.map(mapStarred),
+    starred: gqlUser.starredRepositories.nodes
+      .filter((repo) => repo?.visibility === "PUBLIC")
+      .map(mapStarred),
     organizations,
     socialAccounts,
     contributedRepos,

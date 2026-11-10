@@ -74,7 +74,7 @@ program
   .argument("<username>", "GitHub username for remote data")
   .option(
     "--dir <dir>",
-    "Directory to scan for git repositories (defaults to cwd)"
+    "Directory to scan for Git-tracked repository files"
   )
   .option("-p, --provider <name>", "LLM provider (anthropic or openai)")
   .option("-m, --model <model>", "LLM model override")

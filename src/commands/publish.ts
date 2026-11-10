@@ -32,6 +32,7 @@ export async function publish(file: string, opts: PublishOptions) {
   const result = await withSpinner(`Publishing as ${username}`, async () => {
     const res = await fetch(PUBLISH_ENDPOINT, {
       method: "POST",
+      redirect: "error",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,

@@ -58,8 +58,8 @@ export async function fetchRecentCommits(
   const fragments = targets
     .map((r, i) => {
       const safeName = r.name.replace(/[^a-zA-Z0-9_.-]/g, "");
-      return `r${i}: repository(owner: "${username}", name: "${safeName}") {
-      nameWithOwner
+      return `r${i}: repository(owner: $owner, name: "${safeName}") {
+      nameWithOwner visibility
       defaultBranchRef {
         target {
           ... on Commit {
@@ -73,23 +73,26 @@ export async function fetchRecentCommits(
     })
     .join("\n");
 
-  const query = `query RecentCommits {\n${fragments}\n}`;
+  const query = `query RecentCommits($owner: String!) {\n${fragments}\n}`;
 
   type CommitResult = Record<
     string,
     {
       nameWithOwner: string;
+      visibility: string;
       defaultBranchRef: {
         target: { history: { nodes: GQLCommitNode[] } } | null;
       } | null;
     }
   >;
 
-  const data = await githubGraphQL<CommitResult>(token, query, {});
+  const data = await githubGraphQL<CommitResult>(token, query, {
+    owner: username,
+  });
   const map = new Map<string, GithubCommit[]>();
   for (const key of Object.keys(data)) {
     const repo = data[key];
-    if (!repo) continue;
+    if (repo?.visibility !== "PUBLIC") continue;
     const commits = repo.defaultBranchRef?.target?.history?.nodes ?? [];
     if (commits.length > 0) {
       map.set(repo.nameWithOwner, commits.map(mapCommitGQL));

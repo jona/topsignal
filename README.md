@@ -99,7 +99,7 @@ topsignal analyze torvalds --dir ~/Code --output profile.json --depth 5 --stats
 
 These limits can also be set via environment variables or a config file (see [Configuration](#configuration)).
 
-**Consent prompt** — before sending code to the LLM, the tool shows which repos and how many files will be sent. Pass `-y` to skip.
+**Consent prompt** — before contacting the AI provider, press `v` to preview the exact prompts, including sampled files and GitHub profile fields. Press `y` to approve, or pass `-y` to approve without a preview.
 
 Progress messages go to stderr; JSON output goes to stdout.
 
@@ -163,15 +163,12 @@ topsignal publish profile.json --username torvalds
 
 ## Privacy & Security
 
-TopSignal is designed to be privacy-first:
-
-- **Consent prompt** — before any code is sent to an LLM, you see exactly what will be shared and must confirm (or pass `-y`)
-- **Secret scanning** — code files are scanned for API keys, tokens, private keys, connection strings, and other credentials before being sent anywhere
-- **Credential redaction** — detected secrets are replaced with `[REDACTED]`
-- **Remote URL sanitization** — credentials embedded in git remote URLs are stripped
-- **Sensitive file exclusion** — files like `.env`, credentials, and key files are excluded from code blob fetching
-- **Path stripping** — absolute filesystem paths are removed from the output JSON
-- **`.topsignalignore`** — place in your scan root to exclude repos by name or glob pattern (one per line, `#` comments supported)
+- **Local scans** sample Git-tracked regular files from the working tree under the selected directory. The scanner skips symlinks and untracked files, including ignored files. Uncommitted edits to tracked files can be included, so review the prompts before sending.
+- **AI inputs** are screened for common credentials and private keys. The scanner omits files with detected secrets and redacts matches in AI prompt metadata. Preview prompts before sharing sensitive work.
+- **GitHub data** includes profile README text and review repository names only when the repository is explicitly public.
+- **Publishing** sends the selected JSON and your GitHub login token to the official TopSignal HTTPS endpoint. Review the JSON before publishing it.
+- **Remote URLs** have embedded credentials removed. Common sensitive filenames such as `.env` and key files are excluded from source samples.
+- **Repository exclusions** can be set in `.topsignalignore` at the scan root, with one name or pattern per line. Lines starting with `#` are comments.
 
 ## Output shape
 
@@ -269,6 +266,7 @@ Full list of environment variables:
 ```bash
 npm install
 npm run build      # compile TypeScript
+npm test           # build and run regression tests
 npm run dev        # watch mode
 npm run format     # prettier
 ```

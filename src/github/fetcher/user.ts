@@ -25,7 +25,7 @@ query FirstPage($login: String!) {
     ) {
       totalCount
       nodes {
-        nameWithOwner description url
+        nameWithOwner description url visibility
         primaryLanguage { name }
         stargazerCount forkCount
         isInOrganization
@@ -44,7 +44,7 @@ query FirstPage($login: String!) {
       totalCount
       pageInfo { hasNextPage endCursor }
       nodes {
-        name nameWithOwner description url homepageUrl
+        name nameWithOwner description url homepageUrl visibility
         primaryLanguage { name }
         languages(first: 10, orderBy: { field: SIZE, direction: DESC }) {
           edges { size node { name } }
@@ -60,7 +60,7 @@ query FirstPage($login: String!) {
     }
     starredRepositories(first: ${l.starred}, orderBy: { field: STARRED_AT, direction: DESC }) {
       nodes {
-        name nameWithOwner description
+        name nameWithOwner description visibility
         primaryLanguage { name }
         repositoryTopics(first: 5) { nodes { topic { name } } }
         stargazerCount
@@ -69,7 +69,7 @@ query FirstPage($login: String!) {
     pinnedItems(first: 6, types: REPOSITORY) {
       nodes {
         ... on Repository {
-          name nameWithOwner description
+          name nameWithOwner description visibility
           primaryLanguage { name }
           stargazerCount
           repositoryTopics(first: 5) { nodes { topic { name } } }
@@ -85,8 +85,7 @@ query FirstPage($login: String!) {
         nodes {
           occurredAt
           pullRequest {
-            url
-            repository { nameWithOwner }
+            repository { nameWithOwner visibility }
           }
         }
       }

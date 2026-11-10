@@ -1,40 +1,18 @@
-import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
-import { join, extname, basename } from "node:path";
+import { join, extname, basename, resolve } from "node:path";
 import type { RepoDependencyData, CodeBlob } from "../types.js";
-import { scanForSecrets, redactSecrets } from "./secrets.js";
+import {
+  screenOutboundFile,
+  screenOutboundPackageJson,
+} from "../privacy/outbound.js";
+import { canonicalDirectory, readRegularFile, statWithin } from "./paths.js";
+import { trackedRegularFiles } from "./worktree.js";
 
 // ─── Dependency files ───────────────────────────────────────────────────────
 
-function readFile(path: string, maxBytes?: number): string | null {
-  try {
-    if (!existsSync(path)) return null;
-    const content = readFileSync(path, "utf-8");
-    return maxBytes !== undefined ? content.slice(0, maxBytes) : content;
-  } catch {
-    return null;
-  }
-}
-
-function dirExists(path: string): boolean {
-  try {
-    return statSync(path).isDirectory();
-  } catch {
-    return false;
-  }
-}
-
-function sanitizePackageJson(raw: string | null): string | null {
-  if (!raw) return null;
-  try {
-    const obj = JSON.parse(raw);
-    delete obj.author;
-    delete obj.contributors;
-    delete obj.publishConfig;
-    delete obj.bugs;
-    return JSON.stringify(obj, null, 2);
-  } catch {
-    return raw;
-  }
+function worktreePath(repoPath: string, scanRoot?: string): string | null {
+  if (scanRoot === undefined) return canonicalDirectory(repoPath);
+  const absolute = resolve(repoPath);
+  return statWithin(scanRoot, absolute)?.isDirectory() ? absolute : null;
 }
 
 function sanitizeDockerfile(raw: string | null): string | null {
@@ -53,9 +31,26 @@ function sanitizeDockerCompose(raw: string | null): string | null {
   );
 }
 
-export function readDependencyFiles(repoPath: string): RepoDependencyData {
+export function readDependencyFiles(
+  repoPath: string,
+  scanRoot?: string
+): RepoDependencyData {
   const repoName = basename(repoPath);
-  const r = (file: string, max: number) => readFile(join(repoPath, file), max);
+  const root = worktreePath(repoPath, scanRoot);
+  const files = root ? trackedRegularFiles(root) : new Set<string>();
+  const r = (
+    file: string,
+    max: number,
+    sanitize: (text: string | null) => string | null = screenOutboundFile
+  ) => {
+    if (!root || !files.has(file)) return null;
+    const content = readRegularFile(root, join(root, file), 1024 * 1024);
+    return sanitize(content)?.slice(0, max) ?? null;
+  };
+  const hasDir = (dir: string) =>
+    !!root &&
+    !!statWithin(root, join(root, dir))?.isDirectory() &&
+    [...files].some((file) => file.startsWith(`${dir}/`));
 
   const openapiText =
     r("openapi.yaml", 4000) ??
@@ -64,7 +59,7 @@ export function readDependencyFiles(repoPath: string): RepoDependencyData {
 
   return {
     repoName,
-    packageJson: sanitizePackageJson(r("package.json", 8000)),
+    packageJson: r("package.json", 8000, screenOutboundPackageJson),
     pyproject: r("pyproject.toml", 4000),
     requirements: r("requirements.txt", 3000),
     goMod: r("go.mod", 3000),
@@ -72,17 +67,21 @@ export function readDependencyFiles(repoPath: string): RepoDependencyData {
     gemfile: r("Gemfile", 3000),
     composerJson: r("composer.json", 4000),
     readme: r("README.md", 3000),
-    dockerfile: sanitizeDockerfile(r("Dockerfile", 3000)),
-    dockerCompose: sanitizeDockerCompose(r("docker-compose.yml", 3000)),
+    dockerfile: r("Dockerfile", 3000, (text) =>
+      sanitizeDockerfile(screenOutboundFile(text))
+    ),
+    dockerCompose: r("docker-compose.yml", 3000, (text) =>
+      sanitizeDockerCompose(screenOutboundFile(text))
+    ),
     openapi: openapiText,
     securityMd: r("SECURITY.md", 2000),
     changelogMd: r("CHANGELOG.md", 2000),
-    hasTestsDir: dirExists(join(repoPath, "tests")),
-    hasTestDir: dirExists(join(repoPath, "test")),
-    hasSpecDir: dirExists(join(repoPath, "spec")),
-    hasWorkflows: dirExists(join(repoPath, ".github", "workflows")),
-    hasProtoDir: dirExists(join(repoPath, "proto")),
-    hasDocsDir: dirExists(join(repoPath, "docs")),
+    hasTestsDir: hasDir("tests"),
+    hasTestDir: hasDir("test"),
+    hasSpecDir: hasDir("spec"),
+    hasWorkflows: hasDir(".github/workflows"),
+    hasProtoDir: hasDir("proto"),
+    hasDocsDir: hasDir("docs"),
   };
 }
 
@@ -196,85 +195,50 @@ function scoreFilename(name: string): number {
   return score;
 }
 
-function collectSourceFiles(
-  dir: string,
-  repoRoot: string,
-  depth: number,
-  maxDepth: number,
-  results: { relativePath: string; score: number }[]
-) {
-  if (depth > maxDepth) return;
-
-  let entries: string[];
-  try {
-    entries = readdirSync(dir);
-  } catch {
-    return;
-  }
-
-  for (const entry of entries) {
-    const full = join(dir, entry);
-    const relativePath = full.slice(repoRoot.length + 1);
-
-    if (EXCLUDE_PATTERNS.some((p) => p.test(relativePath))) continue;
-
-    try {
-      const stat = statSync(full);
-      if (stat.isDirectory()) {
-        if (!entry.startsWith(".")) {
-          collectSourceFiles(full, repoRoot, depth + 1, maxDepth, results);
-        }
-      } else if (stat.isFile()) {
-        const ext = extname(entry).toLowerCase();
-        if (CODE_EXTENSIONS.has(ext) && stat.size > 100 && stat.size < 80_000) {
-          results.push({
-            relativePath,
-            score: scoreFilename(entry),
-          });
-        }
-      }
-    } catch {
-      // skip
-    }
-  }
-}
+const SOURCE_DIRS = new Set(["src", "lib", "core", "pkg", "internal", "cmd"]);
 
 export function readCodeBlobs(
   repoPath: string,
-  maxBlobs: number = 15
+  maxBlobs: number = 15,
+  scanRoot?: string
 ): CodeBlob[] {
+  const root = worktreePath(repoPath, scanRoot);
+  if (!root || !Number.isSafeInteger(maxBlobs) || maxBlobs < 1) return [];
   const repoName = basename(repoPath);
-  const candidates: { relativePath: string; score: number }[] = [];
-
-  // Prioritize source directories
-  const sourceDirs = ["src", "lib", "core", "pkg", "internal", "cmd"];
-  for (const dir of sourceDirs) {
-    const full = join(repoPath, dir);
-    if (dirExists(full)) {
-      collectSourceFiles(full, repoPath, 0, 4, candidates);
-    }
+  const candidates: {
+    path: string;
+    ext: string;
+    score: number;
+    isSourceDir: boolean;
+  }[] = [];
+  for (const path of trackedRegularFiles(root)) {
+    const parts = path.split("/");
+    const filename = parts[parts.length - 1];
+    const ext = extname(filename).toLowerCase();
+    const isSourceDir = parts.length > 1 && SOURCE_DIRS.has(parts[0]);
+    if (parts.length > (isSourceDir ? 6 : 2)) continue;
+    if (parts.slice(0, -1).some((dir) => dir.startsWith("."))) continue;
+    if (!CODE_EXTENSIONS.has(ext) || EXCLUDE_PATTERNS.some((p) => p.test(path)))
+      continue;
+    candidates.push({ path, ext, score: scoreFilename(filename), isSourceDir });
   }
-
-  // Also check root level files
-  collectSourceFiles(repoPath, repoPath, 0, 1, candidates);
-
-  candidates.sort((a, b) => b.score - a.score);
+  candidates.sort(
+    (a, b) => b.score - a.score || Number(b.isSourceDir) - Number(a.isSourceDir)
+  );
 
   const blobs: CodeBlob[] = [];
-  for (const candidate of candidates.slice(0, maxBlobs)) {
-    const content = readFile(join(repoPath, candidate.relativePath));
-    if (!content) continue;
-
-    const secrets = scanForSecrets(content);
-    const safeContent = secrets.length > 0 ? redactSecrets(content) : content;
-
-    const ext = extname(candidate.relativePath).toLowerCase();
+  for (const { path, ext } of candidates) {
+    const content = readRegularFile(root, join(root, path), 79_999);
+    if (!content || Buffer.byteLength(content, "utf8") <= 100) continue;
+    const safeContent = screenOutboundFile(content);
+    if (!safeContent) continue;
     blobs.push({
       repoName,
-      path: candidate.relativePath,
+      path,
       language: EXT_TO_LANGUAGE[ext] ?? ext.slice(1).toUpperCase(),
       content: safeContent,
     });
+    if (blobs.length >= maxBlobs) break;
   }
 
   return blobs;

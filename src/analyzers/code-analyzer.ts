@@ -8,6 +8,13 @@ import type {
 } from "../types.js";
 import { loadCustomPrompt, interpolate } from "./prompts.js";
 import { DEFAULT_MAX_TOKENS } from "../env.js";
+import {
+  prepareOutboundPrompt,
+  redactOutboundText,
+  sanitizeOutboundValue,
+  screenOutboundFile,
+  type PreparedPrompt,
+} from "../privacy/outbound.js";
 
 export interface KnowledgeContext {
   codeReviewCount: number;
@@ -206,28 +213,49 @@ function parseResponse(text: string): AnalyzedKnowledge | null {
   }
 }
 
-export async function analyzeKnowledge(
-  llm: LLMProvider,
+export function buildKnowledgePrompt(
   blobs: CodeBlob[],
   depFiles: RepoDependencyData[],
-  context: KnowledgeContext,
-  model?: string
-): Promise<AnalyzedKnowledge | null> {
-  if (blobs.length === 0 && depFiles.length === 0) return null;
+  context: KnowledgeContext
+): PreparedPrompt | null {
+  const safeBlobs = blobs.flatMap((blob) => {
+    const content = screenOutboundFile(blob.content);
+    return content ? [sanitizeOutboundValue({ ...blob, content })] : [];
+  });
+  const safeDepFiles = depFiles.map((dep) => {
+    const safeDep = { ...dep, repoName: redactOutboundText(dep.repoName) };
+    for (const key of Object.keys(safeDep) as (keyof RepoDependencyData)[]) {
+      if (key === "repoName") continue;
+      const field = safeDep[key];
+      if (typeof field === "string") {
+        Object.assign(safeDep, { [key]: screenOutboundFile(field) });
+      }
+    }
+    return safeDep;
+  });
+  const safeContext = sanitizeOutboundValue(context);
+  if (safeBlobs.length === 0 && safeDepFiles.length === 0) return null;
 
   const customPrompt = loadCustomPrompt("knowledge");
   const prompt = customPrompt
     ? interpolate(customPrompt, {
-        sourceCode: blobs
+        sourceCode: safeBlobs
           .map((b) => `${b.repoName}/${b.path}:\n${b.content}`)
           .join("\n\n"),
-        configFiles: depFiles
+        configFiles: safeDepFiles
           .map((d) => `${d.repoName}: ${JSON.stringify(d)}`)
           .join("\n"),
-        stats: JSON.stringify(context),
+        stats: JSON.stringify(safeContext),
       })
-    : buildDefaultPrompt(blobs, depFiles, context);
+    : buildDefaultPrompt(safeBlobs, safeDepFiles, safeContext);
+  return prepareOutboundPrompt(prompt);
+}
 
+export async function analyzeKnowledge(
+  llm: LLMProvider,
+  prompt: PreparedPrompt,
+  model?: string
+): Promise<AnalyzedKnowledge> {
   const text = await llm.sendMessage(prompt, {
     model,
     maxTokens: DEFAULT_MAX_TOKENS,

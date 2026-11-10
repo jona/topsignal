@@ -10,7 +10,7 @@ query SearchData($prQuery: String!, $issuesOpenedQuery: String!, $issuesResolved
       ... on PullRequest {
         title url state createdAt closedAt mergedAt
         additions deletions changedFiles reviewDecision
-        repository { nameWithOwner }
+        repository { nameWithOwner visibility }
         comments { totalCount }
         labels(first: 5) { nodes { name } }
       }
@@ -20,7 +20,7 @@ query SearchData($prQuery: String!, $issuesOpenedQuery: String!, $issuesResolved
     nodes {
       ... on Issue {
         title url state createdAt closedAt
-        repository { nameWithOwner }
+        repository { nameWithOwner visibility }
         comments { totalCount }
         labels(first: 5) { nodes { name } }
       }
@@ -30,7 +30,7 @@ query SearchData($prQuery: String!, $issuesOpenedQuery: String!, $issuesResolved
     nodes {
       ... on Issue {
         title url state createdAt closedAt
-        repository { nameWithOwner }
+        repository { nameWithOwner visibility }
         labels(first: 5) { nodes { name } }
       }
     }

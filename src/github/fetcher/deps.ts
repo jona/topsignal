@@ -1,6 +1,10 @@
 import { githubGraphQL } from "../graphql.js";
 import type { GithubRepo, RepoDependencyData } from "../../types.js";
 import type { GQLBlobText, GQLDirNode } from "./types.js";
+import {
+  screenOutboundFile,
+  screenOutboundPackageJson,
+} from "../../privacy/outbound.js";
 
 export async function fetchDependencyFiles(
   token: string,
@@ -15,7 +19,8 @@ export async function fetchDependencyFiles(
     .map((r, i) => {
       const safeName = r.name.replace(/[^a-zA-Z0-9_.-]/g, "");
       return `
-      r${i}: repository(owner: "${username}", name: "${safeName}") {
+      r${i}: repository(owner: $owner, name: "${safeName}") {
+        visibility
         packageJson:   object(expression: "HEAD:package.json")       { ... on Blob { text } }
         pyproject:     object(expression: "HEAD:pyproject.toml")     { ... on Blob { text } }
         requirements:  object(expression: "HEAD:requirements.txt")   { ... on Blob { text } }
@@ -41,11 +46,12 @@ export async function fetchDependencyFiles(
     })
     .join("\n");
 
-  const query = `query DependencyFiles {\n${repoFragments}\n}`;
+  const query = `query DependencyFiles($owner: String!) {\n${repoFragments}\n}`;
 
   type DepsResult = Record<
     string,
     {
+      visibility: string;
       packageJson: GQLBlobText | null;
       pyproject: GQLBlobText | null;
       requirements: GQLBlobText | null;
@@ -67,64 +73,45 @@ export async function fetchDependencyFiles(
       workflows: GQLDirNode | null;
       protoDir: GQLDirNode | null;
       docsDir: GQLDirNode | null;
-    }
+    } | null
   >;
 
-  const result = await githubGraphQL<DepsResult>(token, query, {}).catch(
-    () => ({}) as DepsResult
-  );
+  const result = await githubGraphQL<DepsResult>(token, query, {
+    owner: username,
+  }).catch(() => ({}) as DepsResult);
 
-  const emptyDep = (repoName: string): RepoDependencyData => ({
-    repoName,
-    packageJson: null,
-    pyproject: null,
-    requirements: null,
-    goMod: null,
-    cargoToml: null,
-    gemfile: null,
-    composerJson: null,
-    readme: null,
-    dockerfile: null,
-    dockerCompose: null,
-    openapi: null,
-    securityMd: null,
-    changelogMd: null,
-    hasTestsDir: false,
-    hasTestDir: false,
-    hasSpecDir: false,
-    hasWorkflows: false,
-    hasProtoDir: false,
-    hasDocsDir: false,
-  });
-
-  return targets.map((r, i) => {
+  return targets.flatMap((r, i) => {
     const d = result[`r${i}`];
-    if (!d) return emptyDep(r.full_name);
+    if (d?.visibility !== "PUBLIC") return [];
     const trim = (s: string | null | undefined, max: number) =>
-      s ? s.slice(0, max) : null;
+      screenOutboundFile(s)?.slice(0, max) ?? null;
     const openapiText =
       d.openapiYaml?.text ?? d.openapiJson?.text ?? d.swaggerYaml?.text ?? null;
-    return {
-      repoName: r.full_name,
-      packageJson: trim(d.packageJson?.text, 8000),
-      pyproject: trim(d.pyproject?.text, 4000),
-      requirements: trim(d.requirements?.text, 3000),
-      goMod: trim(d.goMod?.text, 3000),
-      cargoToml: trim(d.cargoToml?.text, 4000),
-      gemfile: trim(d.gemfile?.text, 3000),
-      composerJson: trim(d.composerJson?.text, 4000),
-      readme: trim(d.readme?.text, 3000),
-      dockerfile: trim(d.dockerfile?.text, 3000),
-      dockerCompose: trim(d.dockerCompose?.text, 3000),
-      openapi: trim(openapiText, 4000),
-      securityMd: trim(d.securityMd?.text, 2000),
-      changelogMd: trim(d.changelogMd?.text, 2000),
-      hasTestsDir: d.testsDir !== null,
-      hasTestDir: d.testDir !== null,
-      hasSpecDir: d.specDir !== null,
-      hasWorkflows: d.workflows !== null,
-      hasProtoDir: d.protoDir !== null,
-      hasDocsDir: d.docsDir !== null,
-    };
+    return [
+      {
+        repoName: r.full_name,
+        packageJson:
+          screenOutboundPackageJson(d.packageJson?.text)?.slice(0, 8000) ??
+          null,
+        pyproject: trim(d.pyproject?.text, 4000),
+        requirements: trim(d.requirements?.text, 3000),
+        goMod: trim(d.goMod?.text, 3000),
+        cargoToml: trim(d.cargoToml?.text, 4000),
+        gemfile: trim(d.gemfile?.text, 3000),
+        composerJson: trim(d.composerJson?.text, 4000),
+        readme: trim(d.readme?.text, 3000),
+        dockerfile: trim(d.dockerfile?.text, 3000),
+        dockerCompose: trim(d.dockerCompose?.text, 3000),
+        openapi: trim(openapiText, 4000),
+        securityMd: trim(d.securityMd?.text, 2000),
+        changelogMd: trim(d.changelogMd?.text, 2000),
+        hasTestsDir: d.testsDir !== null,
+        hasTestDir: d.testDir !== null,
+        hasSpecDir: d.specDir !== null,
+        hasWorkflows: d.workflows !== null,
+        hasProtoDir: d.protoDir !== null,
+        hasDocsDir: d.docsDir !== null,
+      },
+    ];
   });
 }

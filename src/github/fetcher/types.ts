@@ -1,6 +1,7 @@
 // ─── GraphQL Response Types ─────────────────────────────────────────────────
 
 export interface GQLRepoNode {
+  visibility: string;
   name: string;
   nameWithOwner: string;
   description: string | null;
@@ -33,6 +34,7 @@ export interface GQLCommitNode {
 }
 
 export interface GQLStarredRepoNode {
+  visibility: string;
   name: string;
   nameWithOwner: string;
   description: string | null;
@@ -50,9 +52,8 @@ export interface GQLContributions {
     nodes: {
       occurredAt: string;
       pullRequest: {
-        url: string;
-        repository: { nameWithOwner: string };
-      };
+        repository: { nameWithOwner: string; visibility: string } | null;
+      } | null;
     }[];
   };
   contributionCalendar: {
@@ -63,6 +64,7 @@ export interface GQLContributions {
 }
 
 export interface GQLPinnedItem {
+  visibility: string;
   name: string;
   nameWithOwner: string;
   description: string | null;
@@ -87,6 +89,7 @@ export interface GQLSocialAccountNode {
 }
 
 export interface GQLContributedRepoNode {
+  visibility: string;
   nameWithOwner: string;
   description: string | null;
   url: string;
@@ -141,7 +144,7 @@ export interface GQLSearchIssueNode {
   createdAt?: string;
   closedAt?: string | null;
   mergedAt?: string | null;
-  repository?: { nameWithOwner: string };
+  repository?: { nameWithOwner: string; visibility: string };
   comments?: { totalCount: number };
   labels?: { nodes: { name: string }[] };
   additions?: number;

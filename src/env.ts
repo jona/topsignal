@@ -12,8 +12,7 @@ export const GITHUB_GRAPHQL_URL = "https://api.github.com/graphql";
 export const GITHUB_REST_URL = "https://api.github.com";
 export const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
 export const OPENAI_API_URL = "https://api.openai.com/v1/chat/completions";
-export const PUBLISH_ENDPOINT =
-  process.env.TOPSIGNAL_PUBLISH_URL ?? "https://api.topsignal.dev/publish";
+export const PUBLISH_ENDPOINT = "https://api.topsignal.dev/publish";
 
 // ─── LLM defaults ──────────────────────────────────────────────────────────
 

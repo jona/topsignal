@@ -7,23 +7,33 @@ import {
 } from "./transforms.js";
 import {
   analyzeKnowledge,
+  buildKnowledgePrompt,
   type KnowledgeContext,
 } from "./analyzers/code-analyzer.js";
-import { analyzeOverview } from "./analyzers/overview-analyzer.js";
+import {
+  analyzeOverview,
+  buildOverviewPrompt,
+} from "./analyzers/overview-analyzer.js";
 import { withSpinner } from "./ui/spinner.js";
 import ora from "ora";
 import chalk from "chalk";
+
+export interface ProviderPrompts {
+  knowledge: string | null;
+  overview: string;
+}
 
 export interface PipelineOptions {
   wave1: Wave1Data;
   wave2: Wave2Data;
   llm?: LLMProvider;
   model?: string;
+  confirm?: (prompts: Readonly<ProviderPrompts>) => Promise<boolean>;
 }
 
 export async function runPipeline(
   opts: PipelineOptions
-): Promise<DeveloperProfile> {
+): Promise<DeveloperProfile | null> {
   const { wave1, wave2, llm, model } = opts;
 
   const ownRepos = wave1.repos.filter((r) => !r.fork);
@@ -59,22 +69,28 @@ export async function runPipeline(
     sponsorCount: wave1.sponsorship?.sponsorCount ?? 0,
   };
 
+  const knowledgePrompt = buildKnowledgePrompt(
+    wave2.codeBlobs,
+    wave2.dependencyFiles,
+    knowledgeContext
+  );
+  const overviewPrompt = buildOverviewPrompt(profilePayload);
+  if (
+    opts.confirm &&
+    !(await opts.confirm({
+      knowledge: knowledgePrompt,
+      overview: overviewPrompt,
+    }))
+  ) {
+    return null;
+  }
+
   const [knowledge, overview] = await withSpinner(
     "Running AI analysis (knowledge + overview)",
     () =>
       Promise.allSettled([
-        analyzeKnowledge(
-          llm,
-          wave2.codeBlobs,
-          wave2.dependencyFiles,
-          knowledgeContext,
-          model
-        ),
-        analyzeOverview(
-          llm,
-          profilePayload as unknown as Record<string, unknown>,
-          model
-        ),
+        knowledgePrompt ? analyzeKnowledge(llm, knowledgePrompt, model) : null,
+        analyzeOverview(llm, overviewPrompt, model),
       ])
   );
 

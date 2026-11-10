@@ -1,5 +1,6 @@
 import { githubGraphQL } from "../graphql.js";
 import type { GithubRepo, CodeBlob } from "../../types.js";
+import { screenOutboundFile } from "../../privacy/outbound.js";
 
 const CODE_EXTENSIONS = new Set([
   "ts",
@@ -104,6 +105,22 @@ function scoreFilename(name: string): number {
   return score;
 }
 
+function buildPathVariables(tasks: { path: string }[]) {
+  return {
+    definitions: tasks.map((_, i) => `$path${i}: String!`).join(", "),
+    values: Object.fromEntries(
+      tasks.map(({ path }, i) => [`path${i}`, `HEAD:${path}`])
+    ),
+  };
+}
+
+type Tree = { entries?: { name: string; type: string }[] };
+type RepositoryTree = {
+  visibility: string;
+  root?: Tree | null;
+  tree?: Tree | null;
+};
+
 export async function fetchCodeBlobs(
   token: string,
   username: string,
@@ -123,34 +140,58 @@ export async function fetchCodeBlobs(
     .map((r, i) => {
       const safeName = r.name.replace(/[^a-zA-Z0-9_.-]/g, "");
       return `
-      r${i}: repository(owner: "${username}", name: "${safeName}") {
+      r${i}: repository(owner: $owner, name: "${safeName}") {
+        visibility
         root: object(expression: "HEAD:") { ... on Tree { entries { name type } } }
       }`;
     })
     .join("\n");
 
-  const rootResult = await githubGraphQL<
-    Record<string, { root: { entries?: { name: string; type: string }[] } | null }>
-  >(token, `query CodeTrees {\n${rootFragments}\n}`, {}).catch(
-    () => ({}) as Record<string, never>
-  );
+  const rootResult = await githubGraphQL<Record<string, RepositoryTree | null>>(
+    token,
+    `query CodeTrees($owner: String!) {\n${rootFragments}\n}`,
+    { owner: username }
+  ).catch(() => ({}) as Record<string, never>);
 
   const NOISY_DIRS = new Set([
-    "node_modules", ".git", "dist", "build", "out", "target", "vendor",
-    ".next", ".nuxt", "__pycache__", ".venv", "venv", "env", "coverage",
-    ".cache", ".idea", ".vscode", "tmp", "temp", ".turbo", ".parcel-cache",
+    "node_modules",
+    ".git",
+    "dist",
+    "build",
+    "out",
+    "target",
+    "vendor",
+    ".next",
+    ".nuxt",
+    "__pycache__",
+    ".venv",
+    "venv",
+    "env",
+    "coverage",
+    ".cache",
+    ".idea",
+    ".vscode",
+    "tmp",
+    "temp",
+    ".turbo",
+    ".parcel-cache",
   ]);
 
   // candidatesPerRepo[i] accumulates {path, score} across all tree levels
-  const candidatesPerRepo: { path: string; score: number }[][] = targets.map(() => []);
+  const candidatesPerRepo: { path: string; score: number }[][] = targets.map(
+    () => []
+  );
   const level1Tasks: { repoIdx: number; path: string }[] = [];
 
   for (let i = 0; i < targets.length; i++) {
     const repoData = rootResult[`r${i}`];
-    if (!repoData?.root?.entries) continue;
+    if (repoData?.visibility !== "PUBLIC" || !repoData.root?.entries) continue;
     for (const entry of repoData.root.entries) {
       if (entry.type === "blob" && isInterestingFile(entry.name)) {
-        candidatesPerRepo[i].push({ path: entry.name, score: scoreFilename(entry.name) });
+        candidatesPerRepo[i].push({
+          path: entry.name,
+          score: scoreFilename(entry.name),
+        });
       } else if (entry.type === "tree" && !NOISY_DIRS.has(entry.name)) {
         level1Tasks.push({ repoIdx: i, path: entry.name });
       }
@@ -159,28 +200,36 @@ export async function fetchCodeBlobs(
 
   // ── Level 1: drill into all root directories ──────────────────────────────
   if (level1Tasks.length > 0) {
+    const level1Paths = buildPathVariables(level1Tasks);
     const level1Fragments = level1Tasks
       .map((t, j) => {
-        const safeName = targets[t.repoIdx].name.replace(/[^a-zA-Z0-9_.-]/g, "");
+        const safeName = targets[t.repoIdx].name.replace(
+          /[^a-zA-Z0-9_.-]/g,
+          ""
+        );
         return `
-      d${j}: repository(owner: "${username}", name: "${safeName}") {
-        tree: object(expression: "HEAD:${t.path}") { ... on Tree { entries { name type } } }
+      d${j}: repository(owner: $owner, name: "${safeName}") {
+        visibility
+        tree: object(expression: $path${j}) { ... on Tree { entries { name type } } }
       }`;
       })
       .join("\n");
 
     const level1Result = await githubGraphQL<
-      Record<string, { tree: { entries?: { name: string; type: string }[] } | null }>
-    >(token, `query CodeTreesL1 {\n${level1Fragments}\n}`, {}).catch(
-      () => ({}) as Record<string, never>
-    );
+      Record<string, RepositoryTree | null>
+    >(
+      token,
+      `query CodeTreesL1($owner: String!, ${level1Paths.definitions}) {\n${level1Fragments}\n}`,
+      { owner: username, ...level1Paths.values }
+    ).catch(() => ({}) as Record<string, never>);
 
     const level2Tasks: { repoIdx: number; path: string }[] = [];
 
     for (let j = 0; j < level1Tasks.length; j++) {
       const { repoIdx, path: dirPath } = level1Tasks[j];
       const treeData = level1Result[`d${j}`];
-      if (!treeData?.tree?.entries) continue;
+      if (treeData?.visibility !== "PUBLIC" || !treeData.tree?.entries)
+        continue;
       for (const entry of treeData.tree.entries) {
         if (entry.type === "blob" && isInterestingFile(entry.name)) {
           candidatesPerRepo[repoIdx].push({
@@ -195,26 +244,34 @@ export async function fetchCodeBlobs(
 
     // ── Level 2: recurse into subdirs of root dirs ────────────────────────
     if (level2Tasks.length > 0) {
+      const level2Paths = buildPathVariables(level2Tasks);
       const level2Fragments = level2Tasks
         .map((t, j) => {
-          const safeName = targets[t.repoIdx].name.replace(/[^a-zA-Z0-9_.-]/g, "");
+          const safeName = targets[t.repoIdx].name.replace(
+            /[^a-zA-Z0-9_.-]/g,
+            ""
+          );
           return `
-      e${j}: repository(owner: "${username}", name: "${safeName}") {
-        tree: object(expression: "HEAD:${t.path}") { ... on Tree { entries { name type } } }
+      e${j}: repository(owner: $owner, name: "${safeName}") {
+        visibility
+        tree: object(expression: $path${j}) { ... on Tree { entries { name type } } }
       }`;
         })
         .join("\n");
 
       const level2Result = await githubGraphQL<
-        Record<string, { tree: { entries?: { name: string; type: string }[] } | null }>
-      >(token, `query CodeTreesL2 {\n${level2Fragments}\n}`, {}).catch(
-        () => ({}) as Record<string, never>
-      );
+        Record<string, RepositoryTree | null>
+      >(
+        token,
+        `query CodeTreesL2($owner: String!, ${level2Paths.definitions}) {\n${level2Fragments}\n}`,
+        { owner: username, ...level2Paths.values }
+      ).catch(() => ({}) as Record<string, never>);
 
       for (let j = 0; j < level2Tasks.length; j++) {
         const { repoIdx, path: dirPath } = level2Tasks[j];
         const treeData = level2Result[`e${j}`];
-        if (!treeData?.tree?.entries) continue;
+        if (treeData?.visibility !== "PUBLIC" || !treeData.tree?.entries)
+          continue;
         for (const entry of treeData.tree.entries) {
           if (entry.type === "blob" && isInterestingFile(entry.name)) {
             candidatesPerRepo[repoIdx].push({
@@ -240,33 +297,49 @@ export async function fetchCodeBlobs(
 
   if (toFetch.length === 0) return [];
 
+  const blobPaths = buildPathVariables(toFetch);
   const blobFragments = toFetch
     .map((f, i) => {
       const safeName = f.repo.name.replace(/[^a-zA-Z0-9_.-]/g, "");
       return `
-      b${i}: repository(owner: "${username}", name: "${safeName}") {
-        blob: object(expression: "HEAD:${f.path}") { ... on Blob { text byteSize } }
+      b${i}: repository(owner: $owner, name: "${safeName}") {
+        visibility
+        blob: object(expression: $path${i}) { ... on Blob { text byteSize } }
       }`;
     })
     .join("\n");
 
   const blobResult = await githubGraphQL<
-    Record<string, { blob: { text: string; byteSize: number } | null }>
-  >(token, `query FetchBlobs {\n${blobFragments}\n}`, {}).catch(
-    () => ({}) as Record<string, never>
-  );
+    Record<
+      string,
+      {
+        visibility: string;
+        blob: { text: string | null; byteSize: number } | null;
+      } | null
+    >
+  >(
+    token,
+    `query FetchBlobs($owner: String!, ${blobPaths.definitions}) {\n${blobFragments}\n}`,
+    { owner: username, ...blobPaths.values }
+  ).catch(() => ({}) as Record<string, never>);
 
   const blobs: CodeBlob[] = [];
   for (let i = 0; i < toFetch.length; i++) {
     const data = blobResult[`b${i}`];
-    if (!data?.blob?.text) continue;
-    if (data.blob.byteSize > 80_000) continue;
+    if (
+      data?.visibility !== "PUBLIC" ||
+      !data.blob ||
+      data.blob.byteSize > 80_000
+    )
+      continue;
+    const content = screenOutboundFile(data.blob.text);
+    if (!content) continue;
     const ext = toFetch[i].path.split(".").pop()?.toLowerCase() ?? "";
     blobs.push({
       repoName: toFetch[i].repo.name,
       path: toFetch[i].path,
       language: EXT_TO_LANGUAGE[ext] ?? ext.toUpperCase(),
-      content: data.blob.text,
+      content,
     });
   }
 

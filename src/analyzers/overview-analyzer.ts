@@ -2,6 +2,11 @@ import type { LLMProvider } from "../llm/provider.js";
 import type { AiAnalysis } from "../types.js";
 import { loadCustomPrompt, interpolate } from "./prompts.js";
 import { DEFAULT_MAX_TOKENS } from "../env.js";
+import {
+  prepareOutboundPrompt,
+  sanitizeOutboundValue,
+  type PreparedPrompt,
+} from "../privacy/outbound.js";
 
 function buildDefaultPrompt(profile: Record<string, unknown>): string {
   const identity = profile.identity as Record<string, unknown>;
@@ -251,18 +256,24 @@ Return ONLY a valid JSON object matching this exact schema (no markdown, no expl
 }`;
 }
 
-export async function analyzeOverview(
-  llm: LLMProvider,
-  profile: Record<string, unknown>,
-  model?: string
-): Promise<AiAnalysis> {
+export function buildOverviewPrompt(
+  profile: Record<string, unknown>
+): PreparedPrompt {
   const customPrompt = loadCustomPrompt("overview");
+  const safeProfile = sanitizeOutboundValue(profile);
   const prompt = customPrompt
     ? interpolate(customPrompt, {
-        profile: JSON.stringify(profile, null, 2),
+        profile: JSON.stringify(safeProfile, null, 2),
       })
-    : buildDefaultPrompt(profile);
+    : buildDefaultPrompt(safeProfile);
+  return prepareOutboundPrompt(prompt);
+}
 
+export async function analyzeOverview(
+  llm: LLMProvider,
+  prompt: PreparedPrompt,
+  model?: string
+): Promise<AiAnalysis> {
   const raw = await llm.sendMessage(prompt, {
     model,
     maxTokens: DEFAULT_MAX_TOKENS,
