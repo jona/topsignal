@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.2.0
+
+### Privacy & Security
+
+- Send authenticated publishes to the official TopSignal HTTPS endpoint and reject redirects. The profile identity must match the saved GitHub login.
+- Limit local scans to Git-tracked regular files within the selected directory. Include GitHub repository content and review repository names only for public repos.
+- Screen source, manifests, and prompt metadata for credentials before sending them to the AI provider. Press `v` at the consent prompt to preview the exact prompts.
+- Use the saved GitHub login for profile reads and look up the account with the selected token. Store credentials atomically with restrictive permissions and report logout failures.
+- Update Ink's `ws` dependency to `8.22.2` to resolve two security advisories.
+
+### Fixes
+
+- Handle repos with no push date, attribute commit evidence to the selected GitHub account, and validate the AI overview before exporting it.
+- Match local clones with their GitHub repos by origin while keeping unrelated repos with the same name distinct.
+- Validate CLI and fetch limits, correct the first commit date in `git-log`, and repair `npm start`.
+- Add offline regression tests and run them in GitHub Actions on Node 22 and 24.
+
+### Breaking Changes
+
+- `TOPSIGNAL_PUBLISH_URL` no longer overrides the publish endpoint.
+- Use `closedAssignedIssues` for closed issues assigned to the account. The legacy `issuesResolved` field is empty because assignment does not establish who resolved an issue.
+- `analyze` and `github-profile` prefer the saved TopSignal login over `GITHUB_TOKEN`. Remove the saved login with `topsignal logout` to use an environment or GitHub CLI token.
+
 ## 0.1.4
 
 ### Features
