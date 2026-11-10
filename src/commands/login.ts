@@ -1,6 +1,6 @@
 import chalk from "chalk";
 import ora from "ora";
-import { GITHUB_REST_URL, USER_AGENT } from "../env.js";
+import { getGhUsername } from "../github/auth.js";
 import {
   requestDeviceCode,
   pollForToken,
@@ -43,22 +43,12 @@ export async function login() {
   );
 
   spinner.text = chalk.dim("Verifying...");
-  const userRes = await fetch(`${GITHUB_REST_URL}/user`, {
-    headers: {
-      Authorization: `Bearer ${token.access_token}`,
-      "User-Agent": USER_AGENT,
-      Accept: "application/vnd.github+json",
-    },
-  });
-
-  if (!userRes.ok) {
-    spinner.fail(chalk.red("Failed to verify token"));
-    throw new Error("Token verification failed");
+  try {
+    const username = (await getGhUsername(token.access_token)).toLowerCase();
+    saveAuth({ access_token: token.access_token, username });
+    spinner.succeed(chalk.white(`Logged in as ${chalk.bold(username)}`));
+  } catch (error) {
+    spinner.fail(chalk.red("Could not save your GitHub login"));
+    throw error;
   }
-
-  const user = (await userRes.json()) as { login: string };
-  const username = user.login.toLowerCase();
-
-  saveAuth({ access_token: token.access_token, username });
-  spinner.succeed(chalk.white(`Logged in as ${chalk.bold(username)}`));
 }

@@ -1,14 +1,22 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
+import os from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
-import { test } from "node:test";
-import { analyze } from "../dist/commands/analyze.js";
-import { setPromptsDir } from "../dist/analyzers/prompts.js";
-import { fetchGithubData } from "../dist/github/fetcher/index.js";
-import { DEFAULT_LIMITS } from "../dist/limits.js";
-import { runPipeline } from "../dist/pipeline.js";
+import { after, mock, test } from "node:test";
+
+const home = mkdtempSync(join(os.tmpdir(), "topsignal-github-privacy-"));
+const homeMock = mock.method(os, "homedir", () => home);
+syncBuiltinESMExports();
+after(() => rmSync(home, { recursive: true, force: true }));
+const { analyze } = await import("../dist/commands/analyze.js");
+const { setPromptsDir } = await import("../dist/analyzers/prompts.js");
+const { fetchGithubData } = await import("../dist/github/fetcher/index.js");
+const { DEFAULT_LIMITS } = await import("../dist/limits.js");
+const { runPipeline } = await import("../dist/pipeline.js");
+homeMock.mock.restore();
+syncBuiltinESMExports();
 
 const date = "2026-01-01T12:00:00Z";
 const publicRepo = {
@@ -31,6 +39,7 @@ function review(repository) {
 
 function stubGitHub(t, profileRepo) {
   const user = {
+    id: "developer-id",
     login: "developer",
     name: "Example Developer",
     followers: { totalCount: 0 },
@@ -124,7 +133,24 @@ test("uses the previewed prompts only after consent", async (t) => {
   const llm = {
     async sendMessage(prompt) {
       sent.push(prompt);
-      return "{}";
+      return JSON.stringify({
+        executiveSummary: "Fixture summary",
+        seniorityLevel: "mid",
+        seniorityReasoning: "Fixture evidence",
+        roleFit: {
+          primary: "Developer",
+          secondary: [],
+          environment: "either",
+          environmentReasoning: "Fixture evidence",
+        },
+        strengths: [],
+        concerns: [],
+        interviewAngles: [],
+        standoutProjects: [],
+        communicationStyle: "Fixture style",
+        collaborationProfile: "Fixture collaboration",
+        hiringRecommendation: "Fixture recommendation",
+      });
     },
   };
   const result = await runPipeline({
@@ -136,7 +162,7 @@ test("uses the previewed prompts only after consent", async (t) => {
   assert.deepEqual(sent, []);
 
   let previewed;
-  await runPipeline({
+  const approved = await runPipeline({
     ...waves,
     llm,
     confirm: async (prompts) => {
@@ -146,10 +172,11 @@ test("uses the previewed prompts only after consent", async (t) => {
     },
   });
   assert.deepEqual(sent, [previewed.knowledge, previewed.overview]);
+  assert.equal(approved.analysis.overview.executiveSummary, "Fixture summary");
 });
 
 test("analyze previews the overview and declines when stdin closes", async (t) => {
-  const prompts = mkdtempSync(join(tmpdir(), "topsignal-consent-"));
+  const prompts = mkdtempSync(join(home, "consent-"));
   writeFileSync(join(prompts, "overview.md"), "Profile preview: {{profile}}");
   t.after(() => {
     setPromptsDir(undefined);
@@ -181,12 +208,12 @@ test("analyze previews the overview and declines when stdin closes", async (t) =
     messages.push(String(data));
     return true;
   });
-  const output = t.mock.method(process.stdout, "write", () => true);
+  const output = join(home, "profile.json");
 
-  await analyze({ username: "developer", provider: "openai", prompts });
+  await analyze({ username: "developer", provider: "openai", prompts, output });
   assert.match(messages.join(""), /Profile preview: .*"identity"/s);
   assert.match(messages.join(""), /Aborted by user/);
-  assert.equal(output.mock.callCount(), 0);
+  assert.equal(existsSync(output), false);
   assert.ok(
     fetchMock.calls.every(
       ({ arguments: [url] }) => new URL(url).hostname === "api.github.com"

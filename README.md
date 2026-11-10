@@ -18,7 +18,7 @@ npm install -g topsignal
 
 ### GitHub
 
-A GitHub token is required for the `analyze`, `publish`, and `github-profile` commands. The first available source is used:
+`publish` requires a saved session from `topsignal login`. For `analyze` and `github-profile`, the first available GitHub credential is used:
 
 1. `topsignal login` — OAuth device flow, no API key needed (recommended)
 2. `GITHUB_TOKEN` environment variable
@@ -47,7 +47,7 @@ Credentials are stored in `~/.topsignal/auth.json` (file permissions `0600`).
 
 ### `logout`
 
-Remove stored GitHub credentials.
+Remove the stored GitHub login. To revoke TopSignal’s GitHub authorization, remove it from **GitHub Settings → Applications → Authorized OAuth Apps**. [GitHub instructions](https://docs.github.com/en/apps/oauth-apps/using-oauth-apps/reviewing-your-authorized-oauth-apps).
 
 ```bash
 topsignal logout

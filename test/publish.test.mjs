@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
+import os from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 
 test("publish sends credentials and the profile only to the official endpoint", async (t) => {
@@ -14,26 +16,21 @@ test("publish sends credentials and the profile only to the official endpoint", 
     }
   });
 
+  const homeDirectory = fs.mkdtempSync(join(os.tmpdir(), "topsignal-publish-"));
+  t.after(() => fs.rmSync(homeDirectory, { recursive: true, force: true }));
+  const mockHome = t.mock.method(os, "homedir", () => homeDirectory);
+  syncBuiltinESMExports();
   const { publish } = await import("../dist/commands/publish.js");
-  const { AUTH_TOKEN_PATH } = await import("../dist/env.js");
-  const profileFile = "profile-fixture.json";
+  const { saveAuth } = await import("../dist/github/device-flow.js");
+  mockHome.mock.restore();
+  syncBuiltinESMExports();
+
+  const profileFile = join(homeDirectory, "profile-fixture.json");
   const username = "test-user";
   const token = "test-token";
-  const profile = { identity: { username } };
-  const originalReadFile = fs.readFileSync;
-
-  t.mock.method(fs, "readFileSync", (file, ...args) => {
-    if (file === AUTH_TOKEN_PATH) {
-      return JSON.stringify({ access_token: token, username });
-    }
-    if (file === profileFile) return JSON.stringify(profile);
-    return originalReadFile(file, ...args);
-  });
-  syncBuiltinESMExports();
-  t.after(() => {
-    t.mock.restoreAll();
-    syncBuiltinESMExports();
-  });
+  const profile = { identity: { username }, repos: [] };
+  saveAuth({ access_token: token, username });
+  fs.writeFileSync(profileFile, JSON.stringify(profile));
 
   const fetchMock = t.mock.method(globalThis, "fetch", async () => {
     return Response.json({});

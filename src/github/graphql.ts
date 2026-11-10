@@ -1,9 +1,8 @@
 import { GITHUB_GRAPHQL_URL, GITHUB_REST_URL, USER_AGENT } from "../env.js";
 
-function queryName(query: string): string {
-  const m = query.match(/query\s+(\w+)/);
-  return m?.[1] ?? "unknown";
-}
+const REQUEST_TIMEOUT_MS = 15_000;
+const AUTH_ERROR =
+  "GitHub authentication failed. Refresh your TopSignal login or check the GitHub token you configured.";
 
 export async function githubGraphQL<T>(
   token: string,
@@ -11,10 +10,9 @@ export async function githubGraphQL<T>(
   variables: Record<string, unknown>,
   attempt = 0
 ): Promise<T> {
-  const name = queryName(query);
-
   const res = await fetch(GITHUB_GRAPHQL_URL, {
     method: "POST",
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
@@ -26,8 +24,7 @@ export async function githubGraphQL<T>(
   if (res.status === 401) {
     throw {
       status: 401,
-      message:
-        "GitHub authentication failed — run `gh auth login` to re-authenticate",
+      message: AUTH_ERROR,
     };
   }
 
@@ -85,6 +82,7 @@ export async function githubGraphQL<T>(
 
 export async function githubREST<T>(token: string, path: string): Promise<T> {
   const res = await fetch(`${GITHUB_REST_URL}${path}`, {
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     headers: {
       Authorization: `Bearer ${token}`,
       "User-Agent": USER_AGENT,
@@ -95,7 +93,10 @@ export async function githubREST<T>(token: string, path: string): Promise<T> {
   if (!res.ok) {
     throw {
       status: res.status,
-      message: `GitHub REST API error: ${res.status} ${path}`,
+      message:
+        res.status === 401
+          ? AUTH_ERROR
+          : `GitHub REST API error: ${res.status} ${path}`,
     };
   }
 

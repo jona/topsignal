@@ -1,16 +1,14 @@
 import chalk from "chalk";
 import ora from "ora";
-import { clearAuth, loadAuth } from "../github/device-flow.js";
+import { clearAuth } from "../github/device-flow.js";
 
 export function logout() {
-  const existing = loadAuth();
-  if (!existing) {
+  if (!clearAuth()) {
     console.error(chalk.yellow("Not logged in."));
     return;
   }
 
-  clearAuth();
   ora({ stream: process.stderr }).succeed(
-    chalk.white(`Logged out (was ${chalk.bold(existing.username)})`)
+    chalk.white("Removed saved TopSignal credentials.")
   );
 }
