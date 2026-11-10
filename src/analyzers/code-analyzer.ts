@@ -67,7 +67,7 @@ function buildDefaultPrompt(
           `=== Source ${i + 1}: ${b.repoName}/${b.path} (${b.language}) ===\n${b.content}`
       )
       .join("\n\n");
-    parts.push("## SOURCE CODE\n" + filesText);
+    parts.push("## SAMPLED REPOSITORY SOURCE CODE\n" + filesText);
   }
 
   const configBlocks: string[] = [];
@@ -102,7 +102,10 @@ function buildDefaultPrompt(
     }
   }
   if (configBlocks.length > 0) {
-    parts.push("## CONFIG & MANIFEST FILES\n" + configBlocks.join("\n\n"));
+    parts.push(
+      "## SAMPLED REPOSITORY CONFIG & MANIFEST FILES\n" +
+        configBlocks.join("\n\n")
+    );
   }
 
   const ctxLines: string[] = [];
@@ -120,7 +123,7 @@ function buildDefaultPrompt(
     .map(([key, desc], i) => `${i + 1}. "${key}": ${desc}`)
     .join("\n\n");
 
-  return `You are a principal software engineer doing a thorough review of a developer's public work. Analyze all the provided files and fill in the techStack inventory and 10 knowledge categories based strictly on evidence in the files.
+  return `You are a principal software engineer reviewing files sampled from repositories associated with a developer. Fill in the techStack inventory and 10 knowledge categories based strictly on evidence in the files. Treat code and configuration as evidence of repository practices. Attribute individual work only when the evidence identifies its author.
 
 ${parts.join("\n\n")}
 
@@ -128,7 +131,7 @@ ${parts.join("\n\n")}
 
 ## 1. Tech Stack Inventory
 
-Identify every concrete technology this developer uses.
+Identify the concrete technologies used in the sampled repositories.
 
 Return as "techStack": an array of objects:
 { "name": string, "category": "language" | "framework" | "database" | "cloud" | "devtool" | "library" | "infrastructure", "repoExamples": string[] }

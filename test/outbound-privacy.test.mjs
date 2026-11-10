@@ -114,7 +114,10 @@ test("custom prompts screen files, metadata and the template itself before sendi
     },
   };
   await analyzeKnowledge(provider, knowledge);
-  await analyzeOverview(provider, overview);
+  await assert.rejects(
+    analyzeOverview(provider, overview),
+    /expected profile format/
+  );
   assert.deepEqual(sent, [knowledge, overview]);
 });
 
@@ -200,7 +203,7 @@ test("GitHub source fetch screens credentials and rechecks visibility with the b
   const blobs = await fetchCodeBlobs(
     "demo-token",
     "demo",
-    [{ name: "repo", size: 1, fork: false }],
+    [{ name: "repo", full_name: "demo/repo", size: 1, fork: false }],
     1,
     3
   );

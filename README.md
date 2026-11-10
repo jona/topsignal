@@ -172,7 +172,7 @@ topsignal publish profile.json --username torvalds
 
 ## Output shape
 
-`analyze` outputs a `DeveloperProfile`:
+`analyze` outputs a `DeveloperProfile`. Recent commits are linked to the profile’s GitHub account. `closedAssignedIssues` lists sampled closed issues assigned to that account. The legacy `issuesResolved` field is empty because assignment does not identify who resolved an issue.
 
 ```jsonc
 {

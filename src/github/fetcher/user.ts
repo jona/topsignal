@@ -6,7 +6,7 @@ export function buildFirstPageQuery(l: FetchLimits): string {
   return `
 query FirstPage($login: String!) {
   user(login: $login) {
-    login name bio location company
+    id login name bio location company
     websiteUrl avatarUrl url isHireable createdAt
     followers { totalCount }
     following { totalCount }

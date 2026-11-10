@@ -10,6 +10,7 @@ import {
 
 function buildDefaultPrompt(profile: Record<string, unknown>): string {
   const identity = profile.identity as Record<string, unknown>;
+  const login = String(identity?.username ?? "").toLowerCase();
   const languageStats = profile.languageStats as
     | { topLanguages?: { name: string; percentage: number }[] }
     | undefined;
@@ -18,7 +19,7 @@ function buildDefaultPrompt(profile: Record<string, unknown>): string {
     | undefined;
   const repos = (profile.repos as Record<string, unknown>[]) ?? [];
   const commitActivity = profile.commitActivity as
-    | { recentCommits?: { message: string; date: string }[] }
+    | { recentCommits?: { message: string; author?: string }[] }
     | undefined;
   const externalPRs =
     (profile.externalPRs as {
@@ -32,7 +33,8 @@ function buildDefaultPrompt(profile: Record<string, unknown>): string {
       merged?: boolean;
     }[]) ?? [];
   const issuesOpened = (profile.issuesOpened as { title: string }[]) ?? [];
-  const issuesResolved = (profile.issuesResolved as { title: string }[]) ?? [];
+  const closedAssignedIssues =
+    (profile.closedAssignedIssues as { title: string }[]) ?? [];
   const codeReviews = profile.codeReviews as { count: number } | undefined;
   const gists =
     (profile.gists as {
@@ -94,9 +96,10 @@ function buildDefaultPrompt(profile: Record<string, unknown>): string {
 
   const recentCommitMessages =
     commitActivity?.recentCommits
-      ?.slice(0, 20)
+      ?.filter((c) => login && c.author?.toLowerCase() === login)
+      .slice(0, 20)
       .map((c) => `- ${c.message}`)
-      .join("\n") ?? "none";
+      .join("\n") || "none";
 
   const externalPRSummary =
     externalPRs.length > 0
@@ -174,7 +177,7 @@ function buildDefaultPrompt(profile: Record<string, unknown>): string {
 
   const readmeSnippet = profileReadme ? profileReadme.slice(0, 1500) : "none";
 
-  return `You are a senior technical recruiter analyst. Analyze the following GitHub profile data and produce a structured JSON analysis.
+  return `You are a senior technical recruiter analyst. Analyze the following GitHub profile data and produce a structured JSON analysis. Repository languages, topics, stars, and activity describe projects. Attribute individual work only when GitHub identifies this account as the author or contributor. Treat a closed issue assigned to the account as assignment context. State where evidence about the individual's work is limited.
 
 DEVELOPER PROFILE
 =================
@@ -200,20 +203,20 @@ ${sponsorshipSummary}
 PROFILE README
 ${readmeSnippet}
 
-LANGUAGES
+LANGUAGES ACROSS SAMPLED REPOSITORIES (including forks)
 ${topLangs}
 
-SUPERLATIVES
+REPOSITORY AND LANGUAGE SUPERLATIVES
 ${superlativeLines}
 
-TOP REPOSITORIES (own, sorted by stars)
+TOP REPOSITORIES OWNED BY THE ACCOUNT (sorted by stars)
 ${topRepos || "none"}
 
 REPOSITORIES CONTRIBUTED TO
 Total: ${contributedRepos.length}
 ${contributedReposSummary}
 
-RECENT COMMIT MESSAGES (last 20)
+RECENT COMMITS AUTHORED BY THE ACCOUNT (up to 20 from sampled repositories)
 ${recentCommitMessages}
 
 EXTERNAL PRs
@@ -223,10 +226,12 @@ ${externalPRSummary}
 PR DIFF STATS
 ${prDiffSummary}
 
-ISSUES OPENED: ${issuesOpened.length} | ISSUES RESOLVED: ${issuesResolved.length}
+SAMPLED ISSUES OPENED BY THE ACCOUNT: ${issuesOpened.length}
 ${issuesSample}
 
-CODE REVIEWS (last 90 days): ${codeReviews?.count ?? 0}
+SAMPLED CLOSED ISSUES ASSIGNED TO THE ACCOUNT: ${closedAssignedIssues.length}
+
+CODE REVIEWS IN THE GITHUB CONTRIBUTION PERIOD: ${codeReviews?.count ?? 0}
 
 GISTS: ${gists.length}
 ${gistSummary}
@@ -269,6 +274,64 @@ export function buildOverviewPrompt(
   return prepareOutboundPrompt(prompt);
 }
 
+function hasStringFields<K extends string>(
+  value: unknown,
+  keys: readonly K[]
+): value is Record<K, string> & Record<string, unknown> {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    keys.every(
+      (key) => typeof (value as Record<string, unknown>)[key] === "string"
+    )
+  );
+}
+
+function isStringList(value: unknown): value is string[] {
+  return (
+    Array.isArray(value) && value.every((item) => typeof item === "string")
+  );
+}
+
+function isOverview(value: unknown): value is AiAnalysis {
+  if (
+    !hasStringFields(value, [
+      "executiveSummary",
+      "seniorityLevel",
+      "seniorityReasoning",
+      "communicationStyle",
+      "collaborationProfile",
+      "hiringRecommendation",
+    ])
+  )
+    return false;
+
+  const { roleFit, strengths, concerns, interviewAngles, standoutProjects } =
+    value;
+  return (
+    ["junior", "mid", "senior", "staff", "principal"].includes(
+      value.seniorityLevel
+    ) &&
+    hasStringFields(roleFit, [
+      "primary",
+      "environment",
+      "environmentReasoning",
+    ]) &&
+    ["startup", "enterprise", "either"].includes(roleFit.environment) &&
+    isStringList(roleFit.secondary) &&
+    Array.isArray(strengths) &&
+    strengths.every((item) => hasStringFields(item, ["title", "evidence"])) &&
+    Array.isArray(concerns) &&
+    concerns.every((item) => hasStringFields(item, ["title", "detail"])) &&
+    isStringList(interviewAngles) &&
+    Array.isArray(standoutProjects) &&
+    standoutProjects.every((item) =>
+      hasStringFields(item, ["name", "url", "why"])
+    )
+  );
+}
+
 export async function analyzeOverview(
   llm: LLMProvider,
   prompt: PreparedPrompt,
@@ -288,5 +351,14 @@ export async function analyzeOverview(
     throw new Error("LLM did not return valid JSON for overview analysis");
   }
 
-  return JSON.parse(match[0]) as AiAnalysis;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(match[0]);
+  } catch {
+    throw new Error("LLM did not return valid JSON for overview analysis");
+  }
+  if (!isOverview(parsed)) {
+    throw new Error("LLM overview did not match the expected profile format");
+  }
+  return parsed;
 }

@@ -123,7 +123,7 @@ export function buildLanguageStats(
         byteMap[lang] = (byteMap[lang] ?? 0) + bytes;
         repoCountMap[lang] = (repoCountMap[lang] ?? 0) + 1;
         const pushed = repo.pushed_at;
-        if (!lastUsedMap[lang] || pushed > lastUsedMap[lang]) {
+        if (pushed && (!lastUsedMap[lang] || pushed > lastUsedMap[lang])) {
           lastUsedMap[lang] = pushed;
         }
       }
@@ -132,7 +132,10 @@ export function buildLanguageStats(
       byteMap[repo.language] = (byteMap[repo.language] ?? 0) + weight;
       repoCountMap[repo.language] = (repoCountMap[repo.language] ?? 0) + 1;
       const pushed = repo.pushed_at;
-      if (!lastUsedMap[repo.language] || pushed > lastUsedMap[repo.language]) {
+      if (
+        pushed &&
+        (!lastUsedMap[repo.language] || pushed > lastUsedMap[repo.language])
+      ) {
         lastUsedMap[repo.language] = pushed;
       }
     }
@@ -151,9 +154,9 @@ export function buildLanguageStats(
 
   const mostUsed = ranked[0]?.language;
   const leastUsed = ranked[ranked.length - 1]?.language;
-  const sortedByDate = [...ranked].sort((a, b) =>
-    (b.lastUsed ?? "") > (a.lastUsed ?? "") ? 1 : -1
-  );
+  const sortedByDate = ranked
+    .filter((language) => language.lastUsed)
+    .sort((a, b) => (b.lastUsed ?? "").localeCompare(a.lastUsed ?? ""));
   const mostRecent = sortedByDate[0]?.language;
   const leastRecent = sortedByDate[sortedByDate.length - 1]?.language;
 
@@ -173,6 +176,18 @@ export function buildLanguageStats(
 }
 
 // ─── Superlatives ───────────────────────────────────────────────────────────
+
+function mostRecentlyPushedRepo(repos: GithubRepo[]): string | undefined {
+  let latestDate = "";
+  let latestRepo: string | undefined;
+  for (const repo of repos) {
+    if (repo.pushed_at && repo.pushed_at > latestDate) {
+      latestDate = repo.pushed_at;
+      latestRepo = repo.full_name;
+    }
+  }
+  return latestRepo;
+}
 
 export function buildSuperlatives(
   repos: GithubRepo[],
@@ -194,9 +209,7 @@ export function buildSuperlatives(
     newestRepo: [...repos].sort((a, b) =>
       b.created_at.localeCompare(a.created_at)
     )[0]?.full_name,
-    mostActiveRepo: [...repos].sort((a, b) =>
-      b.pushed_at.localeCompare(a.pushed_at)
-    )[0]?.full_name,
+    mostActiveRepo: mostRecentlyPushedRepo(repos),
     largestRepo: [...repos].sort((a, b) => b.size - a.size)[0]?.full_name,
   };
 }
@@ -293,6 +306,8 @@ export function buildProfilePayload(
   const mappedRepos = wave1.repos.map((r) =>
     mapRepo(r, wave1.repoLanguageMap, repoCommitInfoMap)
   );
+  const activeSince = new Date();
+  activeSince.setMonth(activeSince.getMonth() - 6);
 
   return {
     identity: buildIdentityFromWave1(wave1),
@@ -302,19 +317,15 @@ export function buildProfilePayload(
     commitActivity: {
       recentCommits: allCommits.slice(0, 30),
       totalRepos: wave1.repos.length,
-      activeRepos: ownRepos.filter((r) => {
-        const d = new Date(r.pushed_at);
-        const sixMonths = new Date();
-        sixMonths.setMonth(sixMonths.getMonth() - 6);
-        return d > sixMonths;
-      }).length,
-      mostActiveRepo: [...ownRepos].sort((a, b) =>
-        b.pushed_at.localeCompare(a.pushed_at)
-      )[0]?.full_name,
+      activeRepos: ownRepos.filter(
+        (r) => r.pushed_at && new Date(r.pushed_at) > activeSince
+      ).length,
+      mostActiveRepo: mostRecentlyPushedRepo(ownRepos),
     },
     externalPRs: wave1.externalPRs,
     issuesOpened: wave1.issuesOpened,
-    issuesResolved: wave1.issuesResolved,
+    closedAssignedIssues: wave1.closedAssignedIssues,
+    issuesResolved: [],
     codeReviews: wave1.codeReviews,
     contributionCounts: wave1.contributionCounts,
     gists: mappedGists,

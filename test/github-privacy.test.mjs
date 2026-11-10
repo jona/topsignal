@@ -78,7 +78,7 @@ function stubGitHub(t, profileRepo) {
         data: {
           externalPRs: { nodes: [] },
           issuesOpened: { nodes: [] },
-          issuesResolved: { nodes: [] },
+          closedAssignedIssues: { nodes: [] },
         },
       });
     }

@@ -15,7 +15,7 @@ export function mapRepo(r: GQLRepoNode): GithubRepo {
     watchers_count: r.watchers.totalCount,
     fork: r.isFork,
     topics: r.repositoryTopics.nodes.map((t) => t.topic.name),
-    pushed_at: r.pushedAt,
+    pushed_at: r.pushedAt ?? null,
     created_at: r.createdAt,
     updated_at: r.updatedAt,
     size: r.diskUsage,
@@ -30,10 +30,10 @@ export function mapCommitGQL(c: GQLCommitNode): GithubCommit {
     sha: c.oid,
     commit: {
       message: c.messageHeadline,
-      author: { name: c.author.name, date: c.committedDate },
+      author: { name: c.author?.name ?? "", date: c.committedDate },
     },
     html_url: c.url,
-    author: c.author.user ? { login: c.author.user.login } : null,
+    author: c.author?.user ? { login: c.author.user.login } : null,
   };
 }
 
@@ -47,13 +47,14 @@ export function buildLanguageMap(r: GQLRepoNode): Record<string, number> {
 
 export async function fetchRecentCommits(
   token: string,
-  username: string,
+  user: { id: string; login: string },
   repos: GithubRepo[],
   repoLimit: number,
   commitsPerRepo: number
 ): Promise<Map<string, GithubCommit[]>> {
   const targets = repos.filter((r) => !r.fork).slice(0, repoLimit);
-  if (targets.length === 0) return new Map();
+  if (!user.id || targets.length === 0 || commitsPerRepo === 0)
+    return new Map();
 
   const fragments = targets
     .map((r, i) => {
@@ -63,8 +64,8 @@ export async function fetchRecentCommits(
       defaultBranchRef {
         target {
           ... on Commit {
-            history(first: ${commitsPerRepo}) {
-              nodes { oid messageHeadline committedDate url author { name user { login } } }
+            history(first: ${commitsPerRepo}, author: $author) {
+              nodes { oid messageHeadline committedDate url author { name user { id login } } }
             }
           }
         }
@@ -73,7 +74,7 @@ export async function fetchRecentCommits(
     })
     .join("\n");
 
-  const query = `query RecentCommits($owner: String!) {\n${fragments}\n}`;
+  const query = `query RecentCommits($owner: String!, $author: CommitAuthor!) {\n${fragments}\n}`;
 
   type CommitResult = Record<
     string,
@@ -81,19 +82,24 @@ export async function fetchRecentCommits(
       nameWithOwner: string;
       visibility: string;
       defaultBranchRef: {
-        target: { history: { nodes: GQLCommitNode[] } } | null;
+        target: { history: { nodes: (GQLCommitNode | null)[] } } | null;
       } | null;
     }
   >;
 
   const data = await githubGraphQL<CommitResult>(token, query, {
-    owner: username,
+    owner: user.login,
+    author: { id: user.id },
   });
   const map = new Map<string, GithubCommit[]>();
   for (const key of Object.keys(data)) {
     const repo = data[key];
     if (repo?.visibility !== "PUBLIC") continue;
-    const commits = repo.defaultBranchRef?.target?.history?.nodes ?? [];
+    const commits = (
+      repo.defaultBranchRef?.target?.history?.nodes ?? []
+    ).filter(
+      (commit): commit is GQLCommitNode => commit?.author?.user?.id === user.id
+    );
     if (commits.length > 0) {
       map.set(repo.nameWithOwner, commits.map(mapCommitGQL));
     }

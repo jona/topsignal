@@ -14,7 +14,7 @@ export interface GQLRepoNode {
   watchers: { totalCount: number };
   isFork: boolean;
   repositoryTopics: { nodes: { topic: { name: string } }[] };
-  pushedAt: string;
+  pushedAt: string | null;
   createdAt: string;
   updatedAt: string;
   diskUsage: number;
@@ -30,7 +30,10 @@ export interface GQLCommitNode {
   messageHeadline: string;
   committedDate: string;
   url: string;
-  author: { name: string; user: { login: string } | null };
+  author: {
+    name: string | null;
+    user: { id: string; login: string } | null;
+  } | null;
 }
 
 export interface GQLStarredRepoNode {
@@ -101,6 +104,7 @@ export interface GQLContributedRepoNode {
 }
 
 export interface GQLUserProfile {
+  id: string;
   login: string;
   name: string | null;
   bio: string | null;

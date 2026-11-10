@@ -29,7 +29,7 @@ export interface GithubRepo {
   watchers_count: number;
   fork: boolean;
   topics: string[];
-  pushed_at: string;
+  pushed_at: string | null;
   created_at: string;
   updated_at: string;
   size: number;
@@ -182,7 +182,7 @@ export interface Wave1Data {
   };
   externalPRs: MappedIssue[];
   issuesOpened: MappedIssue[];
-  issuesResolved: MappedIssue[];
+  closedAssignedIssues: MappedIssue[];
 }
 
 export interface Wave2Data {
@@ -270,7 +270,7 @@ export interface MappedRepo {
   isForked: boolean;
   isFork: boolean;
   topics: string[];
-  lastCommitAt: string;
+  lastCommitAt: string | null;
   createdAt: string;
   updatedAt: string;
   size: number;
@@ -304,6 +304,8 @@ export interface DeveloperProfile {
   };
   externalPRs: MappedIssue[];
   issuesOpened: MappedIssue[];
+  closedAssignedIssues: MappedIssue[];
+  /** @deprecated The previous assignment-based proxy did not identify who resolved an issue. */
   issuesResolved: MappedIssue[];
   codeReviews: {
     count: number;
@@ -351,7 +353,11 @@ export interface LocalRepoSummary {
   firstCommitDate: string | null;
   lastCommitDate: string | null;
   authors: { name: string; commits: number }[];
-  branches: { name: string; isCurrent: boolean; lastCommitDate: string | null }[];
+  branches: {
+    name: string;
+    isCurrent: boolean;
+    lastCommitDate: string | null;
+  }[];
   commits: { sha: string; message: string; date: string; author: string }[];
   dependencyFiles: RepoDependencyData;
   codeBlobs: CodeBlob[];

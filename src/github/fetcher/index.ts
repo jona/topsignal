@@ -22,22 +22,6 @@ export async function fetchGithubData(
   username: string,
   limits: FetchLimits
 ): Promise<{ wave1: Wave1Data; wave2: Wave2Data }> {
-  // Fire search + gists immediately — don't await yet
-  const searchPromise = githubGraphQL<{
-    externalPRs: GQLSearchResult;
-    issuesOpened: GQLSearchResult;
-    issuesResolved: GQLSearchResult;
-  }>(token, buildSearchQuery(limits), {
-    prQuery: `author:${username} type:pr is:public`,
-    issuesOpenedQuery: `author:${username} type:issue is:public`,
-    issuesResolvedQuery: `assignee:${username} type:issue state:closed is:public`,
-  });
-  // Prevent unhandled rejection if firstPage throws before Promise.all is reached
-  searchPromise.catch(() => {});
-  const gistsPromise = fetchGistsREST(token, username, limits.gists);
-  gistsPromise.catch(() => {});
-
-  // Await first page to get repos, then immediately kick off wave2 work
   const firstPage = await githubGraphQL<{ user: GQLUserProfile }>(
     token,
     buildFirstPageQuery(limits),
@@ -45,13 +29,14 @@ export async function fetchGithubData(
   );
 
   const gqlUser = firstPage.user;
+  const login = gqlUser.login;
+  const ownedRepoPrefix = `${login.toLowerCase()}/`;
   const allGQLRepos = gqlUser.repositories.nodes.filter(
     (repo) => repo?.visibility === "PUBLIC"
   );
   const repos = allGQLRepos.map(mapRepo);
   const ownRepos = repos.filter((r) => !r.fork);
 
-  // Wave2 starts here — search+gists may still be running
   const [
     searchData,
     gists,
@@ -60,20 +45,28 @@ export async function fetchGithubData(
     profileReadme,
     codeBlobs,
   ] = await Promise.all([
-    searchPromise,
-    gistsPromise,
-    fetchDependencyFiles(token, username, repos, limits.depFileRepos),
+    githubGraphQL<{
+      externalPRs: GQLSearchResult;
+      issuesOpened: GQLSearchResult;
+      closedAssignedIssues: GQLSearchResult;
+    }>(token, buildSearchQuery(limits), {
+      prQuery: `author:${login} type:pr is:public`,
+      issuesOpenedQuery: `author:${login} type:issue is:public`,
+      closedAssignedIssuesQuery: `assignee:${login} type:issue state:closed is:public`,
+    }),
+    fetchGistsREST(token, login, limits.gists),
+    fetchDependencyFiles(token, login, repos, limits.depFileRepos),
     fetchRecentCommits(
       token,
-      username,
+      gqlUser,
       repos,
       limits.commitRepos,
       limits.commitsPerRepo
     ),
-    fetchProfileReadme(token, username),
+    fetchProfileReadme(token, login),
     fetchCodeBlobs(
       token,
-      username,
+      login,
       ownRepos,
       limits.blobRepos,
       limits.filesPerBlobRepo
@@ -114,7 +107,7 @@ export async function fetchGithubData(
       (n) =>
         n?.title &&
         n.repository?.visibility === "PUBLIC" &&
-        !n.repository.nameWithOwner.startsWith(`${username}/`)
+        !n.repository.nameWithOwner.toLowerCase().startsWith(ownedRepoPrefix)
     )
     .map(mapSearchIssue);
 
@@ -122,8 +115,13 @@ export async function fetchGithubData(
     .filter((n) => n?.title && n.repository?.visibility === "PUBLIC")
     .map(mapSearchIssue);
 
-  const issuesResolved = searchData.issuesResolved.nodes
-    .filter((n) => n?.title && n.repository?.visibility === "PUBLIC")
+  const closedAssignedIssues = (searchData.closedAssignedIssues?.nodes ?? [])
+    .filter(
+      (n) =>
+        n?.title &&
+        n.state === "CLOSED" &&
+        n.repository?.visibility === "PUBLIC"
+    )
     .map(mapSearchIssue);
 
   const pinnedRepos = (gqlUser.pinnedItems?.nodes ?? [])
@@ -220,7 +218,7 @@ export async function fetchGithubData(
     codeReviews,
     externalPRs,
     issuesOpened,
-    issuesResolved,
+    closedAssignedIssues,
   };
 
   const wave2: Wave2Data = {

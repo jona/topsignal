@@ -4,7 +4,7 @@ import type { GQLSearchIssueNode } from "./types.js";
 
 export function buildSearchQuery(l: FetchLimits): string {
   return `
-query SearchData($prQuery: String!, $issuesOpenedQuery: String!, $issuesResolvedQuery: String!) {
+query SearchData($prQuery: String!, $issuesOpenedQuery: String!, $closedAssignedIssuesQuery: String!) {
   externalPRs: search(query: $prQuery, type: ISSUE, first: ${l.externalPrs}) {
     nodes {
       ... on PullRequest {
@@ -26,7 +26,7 @@ query SearchData($prQuery: String!, $issuesOpenedQuery: String!, $issuesResolved
       }
     }
   }
-  issuesResolved: search(query: $issuesResolvedQuery, type: ISSUE, first: ${l.issues}) {
+  closedAssignedIssues: search(query: $closedAssignedIssuesQuery, type: ISSUE, first: ${l.issues}) {
     nodes {
       ... on Issue {
         title url state createdAt closedAt
