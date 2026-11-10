@@ -1,4 +1,5 @@
-import { spawnSync } from "node:child_process";
+import { basename } from "node:path";
+import { runWorktreeGit } from "./worktree.js";
 
 function sanitizeRemoteUrl(url: string): string {
   try {
@@ -49,12 +50,7 @@ const SEPARATOR = "<<<SEP>>>";
 const FIELD_SEP = "<<<F>>>";
 
 function git(repoPath: string, args: string[]): string | null {
-  const result = spawnSync("git", ["-C", repoPath, ...args], {
-    encoding: "utf-8",
-    maxBuffer: 10 * 1024 * 1024,
-  });
-  if (result.status !== 0 || result.error) return null;
-  return result.stdout.trim() || null;
+  return runWorktreeGit(repoPath, args)?.trim() || null;
 }
 
 function parseCommits(raw: string): LocalCommit[] {
@@ -114,7 +110,7 @@ export function getGitLog(
   repoPath: string,
   maxCommits: number = 200
 ): GitLogResult {
-  const repoName = repoPath.split("/").filter(Boolean).pop() ?? "unknown";
+  const repoName = basename(repoPath) || "unknown";
 
   const rawRemote = git(repoPath, ["remote", "get-url", "origin"]);
   const remote = rawRemote ? sanitizeRemoteUrl(rawRemote) : null;
@@ -144,8 +140,19 @@ export function getGitLog(
   // Branches
   const branches = parseBranches(repoPath);
 
-  // First and last commit dates
-  const firstDate = git(repoPath, ["log", "--format=%aI", "--reverse", "--all", "-1"]);
+  // Roots are the first commits of each reachable history.
+  const roots = git(repoPath, [
+    "log",
+    "--format=%aI",
+    "--max-parents=0",
+    "--all",
+  ]);
+  const firstDate =
+    roots
+      ?.split("\n")
+      .reduce((earliest, date) =>
+        Date.parse(date) < Date.parse(earliest) ? date : earliest
+      ) ?? null;
   const lastDate = git(repoPath, ["log", "--format=%aI", "--all", "-1"]);
 
   return {

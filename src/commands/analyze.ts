@@ -9,6 +9,7 @@ import { setPromptsDir } from "../analyzers/prompts.js";
 import { runPipeline, type ProviderPrompts } from "../pipeline.js";
 import { scanForRepos } from "../local/scanner.js";
 import { canonicalDirectory } from "../local/paths.js";
+import { mergeLocalSamples } from "../local/samples.js";
 import { readDependencyFiles, readCodeBlobs } from "../local/files.js";
 import { computeStats } from "../stats.js";
 import { renderStats } from "../ui/stats-display.js";
@@ -71,6 +72,7 @@ async function confirmSend(
 }
 
 export async function analyze(opts: AnalyzeOptions) {
+  const limits = resolveLimits(opts.limits);
   const dir = opts.dir ? canonicalDirectory(resolve(opts.dir)) : undefined;
   if (opts.dir && !dir)
     throw new Error(
@@ -100,6 +102,7 @@ export async function analyze(opts: AnalyzeOptions) {
   // Scan local repos (only when --dir is provided)
   let localRepos: {
     name: string;
+    remote: string | null;
     dependencyFiles: ReturnType<typeof readDependencyFiles>;
     codeBlobs: ReturnType<typeof readCodeBlobs>;
   }[] = [];
@@ -113,8 +116,9 @@ export async function analyze(opts: AnalyzeOptions) {
       `Reading local data from ${scannedRepos.length} repositories`,
       () =>
         Promise.resolve(
-          scannedRepos.map(({ name, path }) => ({
+          scannedRepos.map(({ name, path, remote }) => ({
             name,
+            remote,
             dependencyFiles: readDependencyFiles(path, dir),
             codeBlobs: readCodeBlobs(path, undefined, dir),
           }))
@@ -125,31 +129,17 @@ export async function analyze(opts: AnalyzeOptions) {
   const token = getGhToken();
   const username = opts.username;
 
-  const limits = resolveLimits(opts.limits);
   const { wave1, wave2 } = await withSpinner(
     `Fetching GitHub data for ${username}`,
     () => fetchGithubData(token, username, limits)
   );
 
-  // Supplement wave2 with local repos not already present from GitHub
-  const wave2RepoNames = new Set(wave2.codeBlobs.map((b) => b.repoName));
-  const wave2DepRepos = new Set(wave2.dependencyFiles.map((d) => d.repoName));
-  let addedBlobs = 0;
-
-  for (const repo of localRepos) {
-    if (!wave2RepoNames.has(repo.name)) {
-      wave2.codeBlobs.push(...repo.codeBlobs);
-      addedBlobs += repo.codeBlobs.length;
-    }
-    if (!wave2DepRepos.has(repo.name)) {
-      wave2.dependencyFiles.push(repo.dependencyFiles);
-    }
-  }
+  const { addedBlobs, localRepoNames } = mergeLocalSamples(wave2, localRepos);
 
   if (addedBlobs > 0) {
     ora({ stream: process.stderr }).info(
       chalk.dim(
-        `Added ${addedBlobs} local code blobs from ${localRepos.length} local repos`
+        `Added ${addedBlobs} local code blobs from ${localRepoNames.length} local repos`
       )
     );
   }
@@ -163,7 +153,7 @@ export async function analyze(opts: AnalyzeOptions) {
     confirm:
       provider && !opts.yes
         ? (prompts) =>
-            confirmSend(prompts, provider.name, localRepos.length > 0)
+            confirmSend(prompts, provider.name, localRepoNames.length > 0)
         : undefined,
   });
   if (!profile) {
@@ -194,8 +184,8 @@ export async function analyze(opts: AnalyzeOptions) {
     const stats = computeStats(
       wave2.codeBlobs,
       wave2.dependencyFiles,
-      localRepos.map((repo) => repo.name),
-      wave1.repos.map((repo) => repo.name)
+      localRepoNames,
+      wave1.repos.map((repo) => repo.full_name)
     );
     await renderStats(stats);
   }

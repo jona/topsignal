@@ -133,7 +133,7 @@ export async function fetchCodeBlobs(
     .sort((a, b) => b.size - a.size)
     .slice(0, repoLimit);
 
-  if (targets.length === 0) return [];
+  if (targets.length === 0 || filesPerRepo === 0) return [];
 
   // ── Level 0: fetch root tree for each repo ───────────────────────────────
   const rootFragments = targets
@@ -336,7 +336,7 @@ export async function fetchCodeBlobs(
     if (!content) continue;
     const ext = toFetch[i].path.split(".").pop()?.toLowerCase() ?? "";
     blobs.push({
-      repoName: toFetch[i].repo.name,
+      repoName: toFetch[i].repo.full_name,
       path: toFetch[i].path,
       language: EXT_TO_LANGUAGE[ext] ?? ext.toUpperCase(),
       content,

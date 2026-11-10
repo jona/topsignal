@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
@@ -73,39 +73,73 @@ const ENV_MAP: Record<keyof FetchLimits, string> = {
 
 export const CONFIG_PATH = join(homedir(), ".topsignal", "config.json");
 
-function loadConfigFile(): Partial<FetchLimits> {
-  if (!existsSync(CONFIG_PATH)) return {};
+function loadConfigFile(): Record<string, unknown> {
   try {
-    return JSON.parse(readFileSync(CONFIG_PATH, "utf8")) as Partial<FetchLimits>;
-  } catch {
-    return {};
+    const config: unknown = JSON.parse(readFileSync(CONFIG_PATH, "utf8"));
+    if (
+      config === null ||
+      typeof config !== "object" ||
+      Array.isArray(config)
+    ) {
+      throw new Error("Expected a JSON object");
+    }
+    return config as Record<string, unknown>;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
+    throw new Error("Invalid TopSignal fetch limits configuration", {
+      cause: error,
+    });
   }
 }
 
-// ─── Env override ─────────────────────────────────────────────────────────────
+export function parseIntegerOption(
+  value: unknown,
+  name: string,
+  min: number,
+  max: number
+): number {
+  const number =
+    typeof value === "string" && /^[0-9]+$/.test(value) ? Number(value) : value;
+  if (
+    typeof number !== "number" ||
+    !Number.isSafeInteger(number) ||
+    number < min ||
+    number > max
+  ) {
+    throw new Error(`${name} must be an integer from ${min} to ${max}`);
+  }
+  return number;
+}
 
-function fromEnv(): Partial<FetchLimits> {
-  const result: Partial<FetchLimits> = {};
-  for (const [key, envVar] of Object.entries(ENV_MAP) as [
-    keyof FetchLimits,
-    string,
-  ][]) {
-    const val = process.env[envVar];
-    if (val !== undefined) {
-      const n = parseInt(val, 10);
-      if (!isNaN(n) && n > 0) result[key] = n;
+const ZERO_ALLOWED = new Set<keyof FetchLimits>([
+  "depFileRepos",
+  "commitRepos",
+  "blobRepos",
+  "filesPerBlobRepo",
+]);
+
+// Flags take precedence over environment variables, config, and defaults.
+export function resolveLimits(flags: Partial<FetchLimits> = {}): FetchLimits {
+  const file = loadConfigFile();
+  const result = { ...DEFAULT_LIMITS };
+  for (const key of Object.keys(DEFAULT_LIMITS) as (keyof FetchLimits)[]) {
+    const envVar = ENV_MAP[key];
+    const flag = flags[key];
+    const env = process.env[envVar];
+    const min = ZERO_ALLOWED.has(key) ? 0 : 1;
+    if (flag !== undefined) {
+      result[key] = parseIntegerOption(flag, key, min, 100);
+    } else if (env !== undefined) {
+      result[key] = parseIntegerOption(env, envVar, min, 100);
+    } else if (Object.hasOwn(file, key)) {
+      const value = file[key];
+      result[key] = parseIntegerOption(
+        typeof value === "number" ? value : NaN,
+        `config.json: ${key}`,
+        min,
+        100
+      );
     }
   }
   return result;
-}
-
-// ─── Resolver — flags > env > config file > defaults ─────────────────────────
-
-export function resolveLimits(flags: Partial<FetchLimits> = {}): FetchLimits {
-  const file = loadConfigFile();
-  const env = fromEnv();
-  const cleanFlags = Object.fromEntries(
-    Object.entries(flags).filter(([, v]) => v !== undefined)
-  ) as Partial<FetchLimits>;
-  return { ...DEFAULT_LIMITS, ...file, ...env, ...cleanFlags };
 }

@@ -3,6 +3,7 @@
 import "dotenv/config";
 import { Command } from "commander";
 import { VERSION } from "../../env.js";
+import { parseIntegerOption, type FetchLimits } from "../../limits.js";
 import { githubProfile } from "../../commands/github-profile.js";
 import { scanRepos } from "../../commands/scan-repos.js";
 import { gitLog } from "../../commands/git-log.js";
@@ -43,7 +44,7 @@ program
   .option("-d, --depth <n>", "Max directory depth to scan", "3")
   .action((dir?: string, opts?: { depth?: string }) => {
     try {
-      scanRepos(dir, { depth: opts?.depth ? parseInt(opts.depth, 10) : 3 });
+      scanRepos(dir, { depth: parseIntegerOption(opts?.depth ?? "3", "--depth", 0, 100) });
     } catch (err) {
       handleError(err);
     }
@@ -58,8 +59,8 @@ program
   .action((repoPath: string, opts?: { commits?: string; blobs?: string }) => {
     try {
       gitLog(repoPath, {
-        commits: opts?.commits ? parseInt(opts.commits, 10) : 200,
-        blobs: opts?.blobs ? parseInt(opts.blobs, 10) : 15,
+        commits: parseIntegerOption(opts?.commits ?? "200", "--commits", 0, 10000),
+        blobs: parseIntegerOption(opts?.blobs ?? "15", "--blobs", 0, 100),
       });
     } catch (err) {
       handleError(err);
@@ -120,7 +121,20 @@ program
       }
     ) => {
       try {
-        const int = (v?: string) => (v ? parseInt(v, 10) : undefined);
+        const limit = (name: string, value?: string, min = 1) =>
+          value === undefined ? undefined : parseIntegerOption(value, name, min, 100);
+        const limits: Partial<FetchLimits> = {
+          repos: limit("--repos", opts?.repos),
+          starred: limit("--starred", opts?.starred),
+          externalPrs: limit("--external-prs", opts?.externalPrs),
+          issues: limit("--issues", opts?.issues),
+          gists: limit("--gists", opts?.gists),
+          depFileRepos: limit("--dep-repos", opts?.depRepos, 0),
+          commitRepos: limit("--commit-repos", opts?.commitRepos, 0),
+          commitsPerRepo: limit("--commits-per-repo", opts?.commitsPerRepo),
+          blobRepos: limit("--blob-repos", opts?.blobRepos, 0),
+          filesPerBlobRepo: limit("--files-per-blob", opts?.filesPerBlob, 0),
+        };
         await analyze({
           username,
           dir: opts?.dir,
@@ -128,22 +142,11 @@ program
           model: opts?.model,
           output: opts?.output,
           prompts: opts?.prompts,
-          depth: opts?.depth ? parseInt(opts.depth, 10) : 3,
+          depth: parseIntegerOption(opts?.depth ?? "3", "--depth", 0, 100),
           exclude: opts?.exclude?.split(",").map((s) => s.trim()).filter(Boolean),
           yes: opts?.yes,
           stats: opts?.stats,
-          limits: {
-            repos: int(opts?.repos),
-            starred: int(opts?.starred),
-            externalPrs: int(opts?.externalPrs),
-            issues: int(opts?.issues),
-            gists: int(opts?.gists),
-            depFileRepos: int(opts?.depRepos),
-            commitRepos: int(opts?.commitRepos),
-            commitsPerRepo: int(opts?.commitsPerRepo),
-            blobRepos: int(opts?.blobRepos),
-            filesPerBlobRepo: int(opts?.filesPerBlob),
-          },
+          limits,
         });
       } catch (err) {
         handleError(err);

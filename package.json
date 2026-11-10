@@ -14,7 +14,7 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "test": "npm run build && node --test",
-    "start": "node dist/cli.js",
+    "start": "node dist/entrypoints/cli/index.js",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },

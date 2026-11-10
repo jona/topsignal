@@ -97,7 +97,7 @@ topsignal analyze torvalds --dir ~/Code --output profile.json --depth 5 --stats
 | `--blob-repos <n>`       | Repos to sample code blobs from      | `5`     |
 | `--files-per-blob <n>`   | Code files to fetch per blob repo    | `3`     |
 
-These limits can also be set via environment variables or a config file (see [Configuration](#configuration)).
+Fetch limits accept integers from 1 to 100. Set `--dep-repos`, `--commit-repos`, `--blob-repos`, or `--files-per-blob` to 0 to skip that sampling. The same ranges apply to environment variables and the [configuration file](#configuration).
 
 **Consent prompt** — before contacting the AI provider, press `v` to preview the exact prompts, including sampled files and GitHub profile fields. Press `y` to approve, or pass `-y` to approve without a preview.
 
@@ -149,7 +149,7 @@ topsignal git-log ~/Code/myproject --commits 500 --blobs 30
 
 ### `publish <file>`
 
-Publish a profile JSON to the TopSignal API. Requires `topsignal login` first — this ensures you can only publish under a GitHub username you own.
+Publish an `analyze` profile JSON to the TopSignal API. Log in first with `topsignal login`. The profile’s identity and any `--username` override must match the logged-in GitHub account.
 
 ```bash
 topsignal publish profile.json
@@ -157,9 +157,9 @@ topsignal publish profile.json --username torvalds
 # ✔ Profile URL: https://www.topsignal.dev/torvalds
 ```
 
-| Flag                        | Description                                                         |
-| --------------------------- | ------------------------------------------------------------------- |
-| `-u, --username <username>` | Username to publish as (auto-detected from login session if omitted) |
+| Flag                        | Description                                            |
+| --------------------------- | ------------------------------------------------------ |
+| `-u, --username <username>`  | Optional username, which must match the login session  |
 
 ## Privacy & Security
 

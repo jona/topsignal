@@ -24,9 +24,18 @@ export function runWorktreeGit(
 
   const result = spawnSync(
     "git",
-    ["-C", repoPath, "-c", "core.fsmonitor=false", ...args],
+    [
+      "-C",
+      repoPath,
+      "-c",
+      "core.fsmonitor=false",
+      "-c",
+      "log.showSignature=false",
+      ...args,
+    ],
     {
       env,
+      timeout: 30_000,
       maxBuffer: 10 * 1024 * 1024,
     }
   );
