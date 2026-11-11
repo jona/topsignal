@@ -9,7 +9,11 @@ import type {
   Wave2Data,
 } from "../../types.js";
 import type { GQLUserProfile, GQLSearchResult } from "./types.js";
-import { buildFirstPageQuery, mapStarred } from "./user.js";
+import {
+  buildFirstPageQuery,
+  mapStarred,
+  fetchPublicOrganizations,
+} from "./user.js";
 import { mapRepo, buildLanguageMap, fetchRecentCommits } from "./repos.js";
 import { buildSearchQuery, mapSearchIssue } from "./search.js";
 import { fetchGistsREST } from "./gists.js";
@@ -44,6 +48,7 @@ export async function fetchGithubData(
     repoCommitMap,
     profileReadme,
     codeBlobs,
+    organizations,
   ] = await Promise.all([
     githubGraphQL<{
       externalPRs: GQLSearchResult;
@@ -71,6 +76,7 @@ export async function fetchGithubData(
       limits.blobRepos,
       limits.filesPerBlobRepo
     ),
+    fetchPublicOrganizations(token, login, limits.orgs),
   ]);
 
   // ── Build wave1 ──────────────────────────────────────────────────────────
@@ -160,17 +166,6 @@ export async function fetchGithubData(
     totalPRs: contrib.totalPullRequestContributions,
   };
 
-  const organizations: GithubOrganization[] = (
-    gqlUser.organizations?.nodes ?? []
-  ).map((o) => ({
-    login: o.login,
-    name: o.name,
-    description: o.description,
-    url: o.url,
-    avatarUrl: o.avatarUrl,
-    memberCount: o.membersWithRole?.totalCount ?? 0,
-  }));
-
   const socialAccounts: GithubSocialAccount[] = (
     gqlUser.socialAccounts?.nodes ?? []
   ).map((s) => ({
@@ -191,7 +186,7 @@ export async function fetchGithubData(
       stars: r.stargazerCount,
       forks: r.forkCount,
       isOrg: r.isInOrganization,
-      owner: r.owner.login,
+      owner: r.nameWithOwner.split("/")[0],
     }));
 
   const sponsorship = {

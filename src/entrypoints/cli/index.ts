@@ -7,7 +7,9 @@ import { parseIntegerOption, type FetchLimits } from "../../limits.js";
 import { githubProfile } from "../../commands/github-profile.js";
 import { scanRepos } from "../../commands/scan-repos.js";
 import { gitLog } from "../../commands/git-log.js";
-import { analyze } from "../../commands/analyze.js";
+import { attachAnalysis } from "../../commands/attach-analysis.js";
+import { analysisSchema } from "../../analysis.js";
+import { analysisPrompt } from "../../commands/analysis-prompt.js";
 import { publish } from "../../commands/publish.js";
 import { login } from "../../commands/login.js";
 import { logout } from "../../commands/logout.js";
@@ -22,12 +24,14 @@ const program = new Command();
 
 program
   .name("topsignal")
-  .description("Analyze developer profiles from local repos and GitHub")
+  .description(
+    "Collect developer evidence and publish harness-analyzed profiles"
+  )
   .version(VERSION);
 
 program
   .command("github-profile")
-  .description("Fetch and analyze a GitHub profile")
+  .description("Fetch raw GitHub profile data")
   .argument("[username]", "GitHub username (auto-detected if omitted)")
   .action(async (username?: string) => {
     try {
@@ -44,7 +48,9 @@ program
   .option("-d, --depth <n>", "Max directory depth to scan", "3")
   .action((dir?: string, opts?: { depth?: string }) => {
     try {
-      scanRepos(dir, { depth: parseIntegerOption(opts?.depth ?? "3", "--depth", 0, 100) });
+      scanRepos(dir, {
+        depth: parseIntegerOption(opts?.depth ?? "3", "--depth", 0, 100),
+      });
     } catch (err) {
       handleError(err);
     }
@@ -59,7 +65,12 @@ program
   .action((repoPath: string, opts?: { commits?: string; blobs?: string }) => {
     try {
       gitLog(repoPath, {
-        commits: parseIntegerOption(opts?.commits ?? "200", "--commits", 0, 10000),
+        commits: parseIntegerOption(
+          opts?.commits ?? "200",
+          "--commits",
+          0,
+          10000
+        ),
         blobs: parseIntegerOption(opts?.blobs ?? "15", "--blobs", 0, 100),
       });
     } catch (err) {
@@ -68,23 +79,24 @@ program
   });
 
 program
-  .command("analyze")
+  .command("collect")
+  .alias("analyze")
   .description(
-    "Full profile analysis with AI — scans a local directory, optionally fetches GitHub data"
+    "Collect GitHub profile data and private evidence for a calling harness"
   )
   .argument("<username>", "GitHub username for remote data")
-  .option(
-    "--dir <dir>",
-    "Directory to scan for Git-tracked repository files"
-  )
-  .option("-p, --provider <name>", "LLM provider (anthropic or openai)")
-  .option("-m, --model <model>", "LLM model override")
+  .option("--dir <dir>", "Directory to scan for Git-tracked repository files")
   .option("-o, --output <file>", "Write JSON to file instead of stdout")
-  .option("--prompts <dir>", "Directory with custom prompt templates")
   .option("-d, --depth <n>", "Max directory depth to scan", "3")
-  .option("--exclude <patterns>", "Comma-separated repo names or patterns to exclude from scanning")
-  .option("-y, --yes", "Skip confirmation prompt before sending data to LLM")
-  .option("--stats", "Print analysis statistics after completion")
+  .option(
+    "--exclude <patterns>",
+    "Comma-separated repo names or patterns to exclude from scanning"
+  )
+  .requiredOption(
+    "--evidence <file>",
+    "Write private source and Git evidence for the harness"
+  )
+  .option("--stats", "Print collection statistics after completion")
   .option("--repos <n>", "Max repos to fetch from GitHub")
   .option("--starred <n>", "Max starred repos to fetch")
   .option("--external-prs <n>", "Max external PRs to fetch")
@@ -100,13 +112,10 @@ program
       username: string,
       opts?: {
         dir?: string;
-        provider?: string;
-        model?: string;
         output?: string;
-        prompts?: string;
+        evidence: string;
         depth?: string;
         exclude?: string;
-        yes?: boolean;
         stats?: boolean;
         repos?: string;
         starred?: string;
@@ -122,7 +131,9 @@ program
     ) => {
       try {
         const limit = (name: string, value?: string, min = 1) =>
-          value === undefined ? undefined : parseIntegerOption(value, name, min, 100);
+          value === undefined
+            ? undefined
+            : parseIntegerOption(value, name, min, 100);
         const limits: Partial<FetchLimits> = {
           repos: limit("--repos", opts?.repos),
           starred: limit("--starred", opts?.starred),
@@ -135,16 +146,17 @@ program
           blobRepos: limit("--blob-repos", opts?.blobRepos, 0),
           filesPerBlobRepo: limit("--files-per-blob", opts?.filesPerBlob, 0),
         };
-        await analyze({
+        const { collect } = await import("../../commands/collect.js");
+        await collect({
           username,
           dir: opts?.dir,
-          provider: opts?.provider,
-          model: opts?.model,
           output: opts?.output,
-          prompts: opts?.prompts,
+          evidence: opts?.evidence ?? "",
           depth: parseIntegerOption(opts?.depth ?? "3", "--depth", 0, 100),
-          exclude: opts?.exclude?.split(",").map((s) => s.trim()).filter(Boolean),
-          yes: opts?.yes,
+          exclude: opts?.exclude
+            ?.split(",")
+            .map((s) => s.trim())
+            .filter(Boolean),
           stats: opts?.stats,
           limits,
         });
@@ -184,6 +196,58 @@ program
   .action(async (file: string, opts?: { username?: string }) => {
     try {
       await publish(file, { username: opts?.username });
+    } catch (err) {
+      handleError(err);
+    }
+  });
+
+program
+  .command("analysis-prompt")
+  .description("Print portable instructions for harness-produced analysis")
+  .argument("[section]", "all, knowledge, or overview", "all")
+  .option(
+    "--prompts <dir>",
+    "Override section Markdown files; shared safeguards stay bundled"
+  )
+  .option(
+    "--json",
+    "Include prompt version, hashes, schema, and a character-based token estimate"
+  )
+  .option("-o, --output <file>", "Write the rendered prompt instead of stdout")
+  .action(
+    (
+      section: string,
+      opts: { prompts?: string; json?: boolean; output?: string }
+    ) => {
+      try {
+        analysisPrompt(section, opts);
+      } catch (err) {
+        handleError(err);
+      }
+    }
+  );
+
+program
+  .command("analysis-schema")
+  .description("Print the JSON Schema for harness-produced analysis")
+  .action(() => {
+    process.stdout.write(JSON.stringify(analysisSchema, null, 2) + "\n");
+  });
+
+program
+  .command("attach-analysis")
+  .description(
+    "Validate and add harness-produced analysis to a collected profile"
+  )
+  .argument("<profile>", "Collected profile JSON")
+  .argument("<analysis>", "Harness analysis JSON matching analysis-schema")
+  .option(
+    "-o, --output <file>",
+    "Write the completed profile instead of stdout"
+  )
+  .action((profile: string, analysis: string, opts: { output?: string }) => {
+    try {
+      attachAnalysis(profile, analysis, opts);
     } catch (err) {
       handleError(err);
     }

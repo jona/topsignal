@@ -125,7 +125,7 @@ const EXCLUDE_PATTERNS = [
   /dist/i,
   /build/i,
   /\.git/i,
-  // Sensitive files — never read or send to LLM
+  // Sensitive files — never include in evidence
   /\.env/i,
   /\.env\./i,
   /credentials/i,

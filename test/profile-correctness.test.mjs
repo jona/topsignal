@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { analyzeOverview } from "../dist/analyzers/overview-analyzer.js";
 import { fetchGithubData } from "../dist/github/fetcher/index.js";
 import { mapRepo } from "../dist/github/fetcher/repos.js";
 import { DEFAULT_LIMITS } from "../dist/limits.js";
@@ -63,10 +62,12 @@ test("exports authored commits and distinguishes closed assignments from resolut
   });
 
   t.mock.method(globalThis, "fetch", async (url, options) => {
-    if (url.includes("/gists?")) return Response.json([]);
+    if (url.includes("/gists?") || url.includes("/orgs?"))
+      return Response.json([]);
     const { query, variables } = JSON.parse(options.body);
     if (query.includes("query FirstPage")) {
       assert.match(query, /\bid\s+login\b/);
+      assert.doesNotMatch(query, /organizations\(/);
       assert.deepEqual(variables, { login: "developer" });
       return Response.json({
         data: {
@@ -181,45 +182,4 @@ test("exports authored commits and distinguishes closed assignments from resolut
     ["Closed issue assigned to the developer"]
   );
   assert.deepEqual(profile.issuesResolved, []);
-});
-
-test("rejects model output that is JSON but has the wrong overview shape", async () => {
-  const overview = {
-    executiveSummary: "A profile summary",
-    seniorityLevel: "senior",
-    seniorityReasoning: "A profile observation",
-    roleFit: {
-      primary: "Developer",
-      secondary: [],
-      environment: "either",
-      environmentReasoning: "Evidence is limited",
-    },
-    strengths: [],
-    concerns: [],
-    interviewAngles: ["What did you build?"],
-    standoutProjects: [],
-    communicationStyle: "Evidence is limited",
-    collaborationProfile: "Evidence is limited",
-    hiringRecommendation: "Review work samples",
-  };
-
-  const valid = {
-    async sendMessage() {
-      return `\`\`\`json\n${JSON.stringify(overview)}\n\`\`\``;
-    },
-  };
-  assert.deepEqual(await analyzeOverview(valid, "Sample prompt"), overview);
-
-  const invalid = {
-    async sendMessage() {
-      return JSON.stringify({
-        ...overview,
-        roleFit: { ...overview.roleFit, secondary: [123] },
-      });
-    },
-  };
-  await assert.rejects(
-    analyzeOverview(invalid, "Sample prompt"),
-    /expected profile format/
-  );
 });

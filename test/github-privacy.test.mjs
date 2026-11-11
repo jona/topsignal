@@ -1,17 +1,14 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import os from "node:os";
 import { join } from "node:path";
-import { Readable } from "node:stream";
 import { after, mock, test } from "node:test";
 
 const home = mkdtempSync(join(os.tmpdir(), "topsignal-github-privacy-"));
 const homeMock = mock.method(os, "homedir", () => home);
 syncBuiltinESMExports();
 after(() => rmSync(home, { recursive: true, force: true }));
-const { analyze } = await import("../dist/commands/analyze.js");
-const { setPromptsDir } = await import("../dist/analyzers/prompts.js");
 const { fetchGithubData } = await import("../dist/github/fetcher/index.js");
 const { DEFAULT_LIMITS } = await import("../dist/limits.js");
 const { runPipeline } = await import("../dist/pipeline.js");
@@ -64,7 +61,9 @@ function stubGitHub(t, profileRepo) {
   };
 
   t.mock.method(globalThis, "fetch", async (url, opts) => {
-    if (url.startsWith("https://api.github.com/users/developer/gists?")) {
+    if (
+      /^https:\/\/api\.github\.com\/users\/developer\/(gists|orgs)\?/.test(url)
+    ) {
       return Response.json([]);
     }
     assert.equal(url, "https://api.github.com/graphql");
@@ -110,113 +109,4 @@ test("exports only public profile READMEs and review repository names", async (t
       ]);
     });
   }
-});
-
-test("uses the previewed prompts only after consent", async (t) => {
-  stubGitHub(t, {
-    visibility: "PUBLIC",
-    readme: { text: "Public introduction" },
-  });
-  const waves = await fetchGithubData(
-    "test-token",
-    "developer",
-    DEFAULT_LIMITS
-  );
-  waves.wave2.codeBlobs.push({
-    repoName: "sample",
-    path: "source.ts",
-    language: "TypeScript",
-    content: "export const example = true;",
-  });
-
-  const sent = [];
-  const llm = {
-    async sendMessage(prompt) {
-      sent.push(prompt);
-      return JSON.stringify({
-        executiveSummary: "Fixture summary",
-        seniorityLevel: "mid",
-        seniorityReasoning: "Fixture evidence",
-        roleFit: {
-          primary: "Developer",
-          secondary: [],
-          environment: "either",
-          environmentReasoning: "Fixture evidence",
-        },
-        strengths: [],
-        concerns: [],
-        interviewAngles: [],
-        standoutProjects: [],
-        communicationStyle: "Fixture style",
-        collaborationProfile: "Fixture collaboration",
-        hiringRecommendation: "Fixture recommendation",
-      });
-    },
-  };
-  const result = await runPipeline({
-    ...waves,
-    llm,
-    confirm: async () => false,
-  });
-  assert.equal(result, null);
-  assert.deepEqual(sent, []);
-
-  let previewed;
-  const approved = await runPipeline({
-    ...waves,
-    llm,
-    confirm: async (prompts) => {
-      assert.deepEqual(sent, []);
-      previewed = prompts;
-      return true;
-    },
-  });
-  assert.deepEqual(sent, [previewed.knowledge, previewed.overview]);
-  assert.equal(approved.analysis.overview.executiveSummary, "Fixture summary");
-});
-
-test("analyze previews the overview and declines when stdin closes", async (t) => {
-  const prompts = mkdtempSync(join(home, "consent-"));
-  writeFileSync(join(prompts, "overview.md"), "Profile preview: {{profile}}");
-  t.after(() => {
-    setPromptsDir(undefined);
-    rmSync(prompts, { recursive: true, force: true });
-  });
-
-  const env = {
-    GITHUB_TOKEN: "test-github-token",
-    OPENAI_API_KEY: "test-openai-key",
-  };
-  for (const [key, value] of Object.entries(env)) {
-    const previous = process.env[key];
-    process.env[key] = value;
-    t.after(() => {
-      if (previous === undefined) delete process.env[key];
-      else process.env[key] = previous;
-    });
-  }
-
-  stubGitHub(t, {
-    visibility: "PUBLIC",
-    readme: { text: "Public introduction" },
-  });
-  const fetchMock = globalThis.fetch.mock;
-  const stdin = Readable.from(["v\n"]);
-  t.mock.getter(process, "stdin", () => stdin);
-  const messages = [];
-  t.mock.method(process.stderr, "write", (data) => {
-    messages.push(String(data));
-    return true;
-  });
-  const output = join(home, "profile.json");
-
-  await analyze({ username: "developer", provider: "openai", prompts, output });
-  assert.match(messages.join(""), /Profile preview: .*"identity"/s);
-  assert.match(messages.join(""), /Aborted by user/);
-  assert.equal(existsSync(output), false);
-  assert.ok(
-    fetchMock.calls.every(
-      ({ arguments: [url] }) => new URL(url).hostname === "api.github.com"
-    )
-  );
 });

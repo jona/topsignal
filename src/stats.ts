@@ -18,7 +18,7 @@ const DEP_FIELDS = [
 
 type DepField = (typeof DEP_FIELDS)[number];
 
-export interface AnalysisStats {
+export interface CollectionStats {
   localRepos: string[];
   remoteRepos: string[];
   blobs: {
@@ -32,7 +32,7 @@ export interface AnalysisStats {
     byLanguage: Array<{ language: string; count: number }>;
     byRepo: Array<{ repo: string; count: number }>;
   };
-  prompt: {
+  evidence: {
     totalInputChars: number;
     estimatedTokens: number;
   };
@@ -43,7 +43,7 @@ export function computeStats(
   depFiles: RepoDependencyData[],
   localRepos: string[] = [],
   remoteRepos: string[] = []
-): AnalysisStats {
+): CollectionStats {
   const count = blobs.length;
   const sizes = blobs.map((b) => b.content.length);
   const totalChars = sizes.reduce((s, n) => s + n, 0);
@@ -55,11 +55,19 @@ export function computeStats(
   const maxIdx = count > 0 ? sizes.indexOf(maxChars) : -1;
   const smallestFile =
     minIdx >= 0
-      ? { repo: blobs[minIdx].repoName, path: blobs[minIdx].path, chars: minChars }
+      ? {
+          repo: blobs[minIdx].repoName,
+          path: blobs[minIdx].path,
+          chars: minChars,
+        }
       : null;
   const largestFile =
     maxIdx >= 0
-      ? { repo: blobs[maxIdx].repoName, path: blobs[maxIdx].path, chars: maxChars }
+      ? {
+          repo: blobs[maxIdx].repoName,
+          path: blobs[maxIdx].path,
+          chars: maxChars,
+        }
       : null;
 
   const langMap = new Map<string, number>();
@@ -101,7 +109,7 @@ export function computeStats(
       byLanguage,
       byRepo,
     },
-    prompt: {
+    evidence: {
       totalInputChars,
       estimatedTokens,
     },

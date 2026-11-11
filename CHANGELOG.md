@@ -1,6 +1,32 @@
 # Changelog
 
-## 0.2.0
+## 0.3.0 — 2026-11-10
+
+### Breaking Changes
+
+- Move analysis into the calling agent harness. Remove built-in Anthropic/OpenAI clients, model/API-key configuration, provider selection, and model-call consent prompts.
+- Make `collect <username>` the primary collection command; retain `analyze` as an alias. Both require a separate `--evidence <file>` destination. The former collection flags `--provider`, `--model`, `--prompts`, and `--yes` are removed.
+- Replace implicit/interpolated prompt templates with literal, explicit `analysis-prompt --prompts <dir>` section overrides. Shared assessment rules always remain bundled.
+
+### Features
+
+- Export deterministic profile data separately from private, screened source samples, manifests, and local Git provenance for harness review.
+- Add `analysis-schema` and `attach-analysis` to validate harness-produced knowledge/overview sections while preserving collected identity and metrics.
+- Restore and rewrite the technical and overview rubrics as provider-independent Markdown assets, with shared evidence, attribution, confidence, privacy, seniority, and context-accounting rules.
+- Add offline `analysis-prompt [all|knowledge|overview]` exports, prompt version **1.0.0**, exact output schemas, SHA-256 provenance, JSON metadata, and clearly labeled token estimates.
+
+### Fixes & Packaging
+
+- Fetch public organization memberships through REST so the default GitHub login does not require `read:org`.
+- Write private evidence atomically with permissions `0600`; reject profile/evidence destination collisions and evidence uploads during publishing.
+- Clean compiled output on build and before packing/publishing, preventing stale versions or removed provider files from entering npm releases.
+- Ship the harness guide, prompt assets, and changelog. Add packed-package checks for version consistency, installed prompt lookup, deterministic output, overrides, and zero prompt-command network/subprocess activity.
+
+### Migration
+
+Use `collect` → harness assessment with `analysis-prompt` → `attach-analysis` → `publish`. See the README for the complete `npx topsignal@latest` workflow. This release also includes the 0.2.0 changes below, which were tagged in Git but not published to npm.
+
+## 0.2.0 (Git tag only)
 
 ### Privacy & Security
 

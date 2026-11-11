@@ -1,22 +1,26 @@
 {
   "name": "topsignal",
-  "version": "0.2.0",
-  "description": "Share your TopSignal",
+  "version": "0.3.0",
+  "description": "Collect developer profile evidence for an agent harness and publish the completed profile",
   "license": "MIT",
   "type": "module",
   "bin": {
     "topsignal": "dist/entrypoints/cli/index.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "HARNESS.md",
+    "prompts",
+    "CHANGELOG.md"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "node -e \"require('node:fs').rmSync('dist', {recursive: true, force: true})\" && tsc",
     "dev": "tsc --watch",
     "test": "npm run build && node --test",
     "start": "node dist/entrypoints/cli/index.js",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "prepack": "npm run build"
   },
   "dependencies": {
     "chalk": "^5.6.2",
@@ -31,5 +35,13 @@
     "@types/react": "^19.2.14",
     "prettier": "^3.8.1",
     "typescript": "^5.8.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jona/topsignal.git"
+  },
+  "homepage": "https://www.topsignal.dev",
+  "bugs": {
+    "url": "https://github.com/jona/topsignal/issues"
   }
 }

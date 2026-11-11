@@ -1,5 +1,6 @@
 import type { FetchLimits } from "../../limits.js";
-import type { GithubStarredRepo } from "../../types.js";
+import type { GithubStarredRepo, GithubOrganization } from "../../types.js";
+import { githubREST } from "../graphql.js";
 import type { GQLStarredRepoNode } from "./types.js";
 
 export function buildFirstPageQuery(l: FetchLimits): string {
@@ -10,9 +11,6 @@ query FirstPage($login: String!) {
     websiteUrl avatarUrl url isHireable createdAt
     followers { totalCount }
     following { totalCount }
-    organizations(first: ${l.orgs}) {
-      nodes { login name description url avatarUrl }
-    }
     socialAccounts(first: 10) {
       nodes { provider url displayName }
     }
@@ -29,7 +27,6 @@ query FirstPage($login: String!) {
         primaryLanguage { name }
         stargazerCount forkCount
         isInOrganization
-        owner { login }
       }
     }
     hasSponsorsListing
@@ -107,4 +104,23 @@ export function mapStarred(r: GQLStarredRepoNode): GithubStarredRepo {
     topics: r.repositoryTopics.nodes.map((t) => t.topic.name),
     stargazers_count: r.stargazerCount,
   };
+}
+
+/** Public memberships need no read:org scope, unlike GraphQL organizations. */
+export async function fetchPublicOrganizations(
+  token: string,
+  username: string,
+  limit: number
+): Promise<GithubOrganization[]> {
+  const orgs = await githubREST<
+    { login: string; description: string | null; avatar_url: string }[]
+  >(token, `/users/${encodeURIComponent(username)}/orgs?per_page=${limit}`);
+  return orgs.map((org) => ({
+    login: org.login,
+    name: null,
+    description: org.description,
+    url: `https://github.com/${org.login}`,
+    avatarUrl: org.avatar_url,
+    memberCount: 0,
+  }));
 }

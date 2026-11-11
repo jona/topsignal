@@ -6,8 +6,6 @@ import {
 } from "../local/secrets.js";
 
 const MAX_SCREENED_FILE_BYTES = 1024 * 1024;
-declare const screenedPrompt: unique symbol;
-export type PreparedPrompt = string & { readonly [screenedPrompt]: true };
 
 /** Omit a whole file when it contains recognized credential material. */
 export function screenOutboundFile(
@@ -19,14 +17,9 @@ export function screenOutboundFile(
   return hasSecrets(text) ? null : text;
 }
 
-/** Redact recognized credentials in metadata and in rendered prompts. */
+/** Redact recognized credentials in collected metadata. */
 export function redactOutboundText(text: string): string {
   return redactSecrets(text);
-}
-
-/** Mark the redacted text so the approved bytes can be sent unchanged. */
-export function prepareOutboundPrompt(text: string): PreparedPrompt {
-  return redactOutboundText(text) as PreparedPrompt;
 }
 
 /** Redact JSON-shaped data before rendering, truncating, or serializing it. */

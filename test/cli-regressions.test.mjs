@@ -113,9 +113,28 @@ test("CLI rejects malformed and out-of-range numeric flags", (t) => {
     [["scan-repos", "--depth", "3files"], 0, 100],
     [["git-log", ".", "--commits", "10001"], 0, 10000],
     [["git-log", ".", "--blobs", "101"], 0, 100],
-    [["analyze", "developer", "--depth", "101"], 0, 100],
-    [["analyze", "developer", "--repos", "0"], 1, 100],
-    [["analyze", "developer", "--commits-per-repo", "0"], 1, 100],
+    [
+      ["collect", "developer", "--evidence", "evidence.json", "--depth", "101"],
+      0,
+      100,
+    ],
+    [
+      ["collect", "developer", "--evidence", "evidence.json", "--repos", "0"],
+      1,
+      100,
+    ],
+    [
+      [
+        "collect",
+        "developer",
+        "--evidence",
+        "evidence.json",
+        "--commits-per-repo",
+        "0",
+      ],
+      1,
+      100,
+    ],
   ]) {
     const result = node([cli, ...args]);
     assert.equal(result.status, 1, result.stderr);
@@ -174,12 +193,12 @@ process.stdout.write(JSON.stringify(resolveLimits({ repos: 100 })));`,
   }
 });
 
-test("analyze rejects invalid effective env and config limits before fetching", (t) => {
+test("collect rejects invalid effective env and config limits before fetching", (t) => {
   const { root, node } = fixture(t);
   const configDir = join(root, ".topsignal");
   mkdirSync(configDir);
   const config = join(configDir, "config.json");
-  const command = [cli, "analyze", "developer"];
+  const command = [cli, "collect", "developer", "--evidence", "evidence.json"];
   const fakeToken = { GITHUB_TOKEN: "test-token" };
 
   writeFileSync(config, JSON.stringify({ repos: "25" }));

@@ -1,6 +1,6 @@
 import React, { useEffect } from "react";
 import { render, useApp, Box, Text } from "ink";
-import type { AnalysisStats } from "../stats.js";
+import type { CollectionStats } from "../stats.js";
 
 function fmt(n: number): string {
   return n.toLocaleString("en-US");
@@ -66,7 +66,7 @@ function Section({
   );
 }
 
-function StatsApp({ data }: { data: AnalysisStats }) {
+function StatsApp({ data }: { data: CollectionStats }) {
   const { exit } = useApp();
   useEffect(() => {
     exit();
@@ -84,22 +84,27 @@ function StatsApp({ data }: { data: AnalysisStats }) {
     >
       <Box justifyContent="center" marginBottom={1}>
         <Text bold color="cyan">
-          Analysis Statistics
+          Collection Statistics
         </Text>
       </Box>
 
       {data.remoteRepos.length > 0 && (
         <Section title="REMOTE REPOS (GitHub)">
           {data.remoteRepos.map((repo) => {
-            const blobCount = data.blobs.byRepo.find((r) => r.repo === repo)?.count ?? 0;
+            const blobCount =
+              data.blobs.byRepo.find((r) => r.repo === repo)?.count ?? 0;
             return (
               <Box key={repo} gap={1}>
                 <Text color={blobCount > 0 ? "green" : "gray"}>
                   {blobCount > 0 ? "✓" : "✗"}
                 </Text>
-                <Text color={blobCount > 0 ? "white" : "gray"}>{repo.padEnd(32)}</Text>
                 <Text color={blobCount > 0 ? "white" : "gray"}>
-                  {blobCount > 0 ? `${blobCount} ${blobCount === 1 ? "file" : "files"}` : "no matching files"}
+                  {repo.padEnd(32)}
+                </Text>
+                <Text color={blobCount > 0 ? "white" : "gray"}>
+                  {blobCount > 0
+                    ? `${blobCount} ${blobCount === 1 ? "file" : "files"}`
+                    : "no matching files"}
                 </Text>
               </Box>
             );
@@ -110,15 +115,20 @@ function StatsApp({ data }: { data: AnalysisStats }) {
       {data.localRepos.length > 0 && (
         <Section title="LOCAL REPOS">
           {data.localRepos.map((repo) => {
-            const blobCount = data.blobs.byRepo.find((r) => r.repo === repo)?.count ?? 0;
+            const blobCount =
+              data.blobs.byRepo.find((r) => r.repo === repo)?.count ?? 0;
             return (
               <Box key={repo} gap={1}>
                 <Text color={blobCount > 0 ? "green" : "gray"}>
                   {blobCount > 0 ? "✓" : "✗"}
                 </Text>
-                <Text color={blobCount > 0 ? "white" : "gray"}>{repo.padEnd(32)}</Text>
                 <Text color={blobCount > 0 ? "white" : "gray"}>
-                  {blobCount > 0 ? `${blobCount} ${blobCount === 1 ? "file" : "files"}` : "no matching files"}
+                  {repo.padEnd(32)}
+                </Text>
+                <Text color={blobCount > 0 ? "white" : "gray"}>
+                  {blobCount > 0
+                    ? `${blobCount} ${blobCount === 1 ? "file" : "files"}`
+                    : "no matching files"}
                 </Text>
               </Box>
             );
@@ -127,7 +137,7 @@ function StatsApp({ data }: { data: AnalysisStats }) {
       )}
 
       <Section title="CODE FILES">
-        <Row label="Files analyzed" value={fmt(data.blobs.count)} />
+        <Row label="Files collected" value={fmt(data.blobs.count)} />
         <Row label="Total characters" value={fmt(data.blobs.totalChars)} />
         <Row
           label="Avg file size"
@@ -163,22 +173,21 @@ function StatsApp({ data }: { data: AnalysisStats }) {
         </Section>
       )}
 
-
-<Section title="PROMPT ESTIMATE">
+      <Section title="EVIDENCE SIZE">
         <Row
           label="Total input characters"
-          value={fmt(data.prompt.totalInputChars)}
+          value={fmt(data.evidence.totalInputChars)}
         />
         <Row
           label="Estimated tokens"
-          value={`~${fmt(data.prompt.estimatedTokens)}  (4 chars/token)`}
+          value={`~${fmt(data.evidence.estimatedTokens)}  (4 chars/token)`}
         />
       </Section>
     </Box>
   );
 }
 
-export async function renderStats(data: AnalysisStats): Promise<void> {
+export async function renderStats(data: CollectionStats): Promise<void> {
   const { waitUntilExit } = render(<StatsApp data={data} />, {
     stdout: process.stderr,
   });

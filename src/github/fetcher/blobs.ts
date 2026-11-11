@@ -34,7 +34,7 @@ const EXCLUDE_PATTERNS = [
   /fixtures/i,
   /migrations/i,
   /vendor/i,
-  // Sensitive files — never fetch or send to LLM
+  // Sensitive files — never include in evidence
   /\.env/i,
   /credentials/i,
   /secrets?\./i,

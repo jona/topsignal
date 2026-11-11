@@ -1,22 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import test from "node:test";
 
-import {
-  analyzeKnowledge,
-  buildKnowledgePrompt,
-} from "../dist/analyzers/code-analyzer.js";
-import {
-  analyzeOverview,
-  buildOverviewPrompt,
-} from "../dist/analyzers/overview-analyzer.js";
-import { setPromptsDir } from "../dist/analyzers/prompts.js";
 import { fetchCodeBlobs } from "../dist/github/fetcher/blobs.js";
 import { fetchDependencyFiles } from "../dist/github/fetcher/deps.js";
 import {
   redactOutboundText,
+  sanitizeOutboundValue,
   screenOutboundFile,
 } from "../dist/privacy/outbound.js";
 
@@ -40,85 +29,61 @@ test("omits files with incomplete private keys and fully redacts blocks in metad
   assert.equal(screenOutboundFile("x".repeat(1024 * 1024 + 1)), null);
 });
 
-test("custom prompts screen files, metadata and the template itself before sending", async (t) => {
-  const dir = mkdtempSync(join(tmpdir(), "topsignal-outbound-"));
-  t.after(() => {
-    setPromptsDir();
-    rmSync(dir, { recursive: true, force: true });
-  });
-  setPromptsDir(dir);
-  writeFileSync(
-    join(dir, "knowledge.md"),
-    'Sources:\n{{sourceCode}}\nConfigs:\n{{configFiles}}\n{{stats}}\nPASSWORD="fake-template-value"'
-  );
-  writeFileSync(join(dir, "overview.md"), "{{profile}}");
-
-  const knowledge = buildKnowledgePrompt(
-    [
-      {
-        repoName: "demo",
-        path: "safe.ts",
-        language: "TypeScript",
-        content: "export const demonstration = true;",
-      },
-      {
-        repoName: "demo",
-        path: "unsafe.ts",
-        language: "TypeScript",
-        content: 'const ACCESS_TOKEN = "fake-source-value";',
-      },
-    ],
-    [
-      {
-        repoName: "demo",
-        packageJson: '{"name":"ordinary-package"}',
-        readme: 'PASSWORD = "fake-docs-value"',
-      },
-    ],
+test("evidence screens whole files and redacts metadata before serialization", async () => {
+  const { buildEvidence } = await import("../dist/evidence.js");
+  const evidence = buildEvidence(
+    "demo",
+    "2026-01-01T00:00:00Z",
     {
-      codeReviewCount: 0,
-      externalPRCount: 0,
-      issueCount: 0,
-      totalCommits: 0,
-      contributedRepoCount: 1,
-      contributedRepoNames: ['PASSWORD="fake-context-value"'],
-      hasSponsorListing: false,
-      sponsorCount: 0,
-    }
-  );
-  const overview = buildOverviewPrompt({
-    identity: {
-      name: "Example developer",
-      bio: 'PASSWORD="fake-profile-value"',
-      credentials: { accessToken: "fake-profile-token" },
+      codeBlobs: [
+        {
+          repoName: "demo",
+          path: "safe.ts",
+          language: "TypeScript",
+          content: "export const example = true;",
+        },
+        {
+          repoName: "demo",
+          path: "unsafe.ts",
+          language: "TypeScript",
+          content: 'const PASSWORD = "fixture-source-secret";',
+        },
+      ],
+      dependencyFiles: [
+        {
+          repoName: "demo",
+          packageJson: '{"name":"safe-package"}',
+          readme: 'PASSWORD="fixture-doc-secret"',
+        },
+      ],
     },
-  });
-  assert.match(knowledge, /safe\.ts/);
-  assert.match(knowledge, /ordinary-package/);
+    [
+      {
+        name: 'PASSWORD="fixture-metadata-secret"',
+        path: "demo",
+        remote: null,
+        git: {
+          authors: [],
+          commits: [],
+          totalCommits: 0,
+          firstCommitDate: null,
+          lastCommitDate: null,
+        },
+      },
+    ]
+  );
+  assert.deepEqual(
+    evidence.codeBlobs.map((b) => b.path),
+    ["safe.ts"]
+  );
+  assert.equal(evidence.dependencyFiles[0].readme, null);
   assert.doesNotMatch(
-    knowledge,
-    /unsafe\.ts|fake-(source|docs|context|template)-value/
+    JSON.stringify(evidence),
+    /fixture-(source|doc|metadata)-secret/
   );
-  assert.deepEqual(JSON.parse(overview).identity, {
-    name: "Example developer",
-    bio: 'PASSWORD="[REDACTED]"',
-    credentials: { accessToken: "[REDACTED]" },
+  assert.deepEqual(sanitizeOutboundValue({ accessToken: "fixture-value" }), {
+    accessToken: "[REDACTED]",
   });
-
-  const sent = [];
-  const provider = {
-    name: "test-provider",
-    async sendMessage(prompt) {
-      sent.push(prompt);
-      return "{}";
-    },
-  };
-  await analyzeKnowledge(provider, knowledge);
-  await assert.rejects(
-    analyzeOverview(provider, overview),
-    /expected profile format/
-  );
-  assert.deepEqual(sent, [knowledge, overview]);
 });
 
 test("GitHub documents are screened before truncation and gated by visibility", async (t) => {

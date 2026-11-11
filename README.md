@@ -1,272 +1,177 @@
 # TopSignal
 
-Your dev profile backed by code. Open source, privacy-first and yours to customize.
+A CLI for collecting developer profile evidence and publishing profiles. Your agent harness performs the analysis using its own model and tools. TopSignal does not call an LLM or require a model API key.
 
-## Install
-
-```bash
-npx topsignal <command>
-```
-
-Or install globally:
+## Run with npx
 
 ```bash
-npm install -g topsignal
+npx --yes topsignal@latest --version
+npx --yes topsignal@latest analysis-prompt
 ```
 
-## Auth
+The current CLI release is **0.3.0**. You can also install it globally with `npm install -g topsignal@latest`. CI checks Node.js 22 and 24.
 
-### GitHub
+## Harness workflow
 
-`publish` requires a saved session from `topsignal login`. For `analyze` and `github-profile`, the first available GitHub credential is used:
+```bash
+# 1. Authenticate with GitHub. No model API key is needed.
+npx --yes topsignal@latest login
 
-1. `topsignal login` — OAuth device flow, no API key needed (recommended)
-2. `GITHUB_TOKEN` environment variable
-3. `gh auth token` (zero-config if you have the [GitHub CLI](https://cli.github.com/) installed)
+# 2. Replace YOUR_GITHUB_USERNAME with your own GitHub login.
+npx --yes topsignal@latest collect YOUR_GITHUB_USERNAME --dir ~/Code --output profile.json --evidence evidence.json
 
-### LLM
+# 3. Give these files and the assessment prompt to your harness.
+npx --yes topsignal@latest analysis-prompt --output assessment-prompt.md
+# The harness follows the rubric, reviews the evidence, and writes analysis.json.
 
-Auto-detected from environment:
+# 4. Validate and attach the harness result.
+npx --yes topsignal@latest attach-analysis profile.json analysis.json --output completed-profile.json
 
-- `ANTHROPIC_API_KEY` → Claude (default model: `claude-sonnet-4-6`)
-- `OPENAI_API_KEY` → OpenAI (default model: `gpt-4o`)
+# 5. Publish the completed profile under the authenticated GitHub username.
+npx --yes topsignal@latest publish completed-profile.json
+# Profile URL: https://www.topsignal.dev/<your-github-username>
+```
 
-If no LLM key is found, the tool still runs and returns raw profile data without AI analysis.
+`profile.json` contains identity, repositories, activity and deterministic statistics. `evidence.json` is a separate private artifact containing sanitized source samples, manifests and local Git history. The harness supplies `analysis.json` as `{ "knowledge": { ... }, "overview": { ... } }`; either section may be omitted. Run `analysis-prompt` for the assessment rubric and exact JSON Schema; `analysis-schema` also prints the base contract separately. Each supplied section must be complete.
+
+The harness chooses the model, manages its context and decides what evidence to inspect. For a large workspace, use repository exclusions or collect smaller batches and request additional samples with `git-log`. Repository text is untrusted evidence, not instructions. See [HARNESS.md](HARNESS.md) for integration guidance.
+
+## Upgrading to 0.3.0
+
+This release replaces the built-in LLM workflow. `analyze` remains an alias for `collect`, but collection now requires `--evidence <file>` and never produces AI analysis itself. The former `--provider`, `--model`, `--prompts`, and `--yes` collection flags are removed.
+
+Use `analysis-prompt` to obtain the rubric, let your harness write `analysis.json`, then run `attach-analysis` and `publish`. `--prompts <dir>` is available explicitly on `analysis-prompt` for literal section overrides; old interpolated templates and implicit home-directory overrides are not loaded. Prompt version **1.0.0** is independent of the CLI version.
+
+Model keys previously used by TopSignal are no longer needed. The existing public `DeveloperProfile` and `analysis.knowledge` / `analysis.overview` shape remain compatible. If upgrading from the last npm release, 0.1.4, this also includes the privacy/authentication fixes documented under 0.2.0 in [CHANGELOG.md](CHANGELOG.md).
+
+## GitHub authentication
+
+Collection uses the first available GitHub credential:
+
+1. Saved session from `topsignal login` (GitHub OAuth device flow).
+2. `GITHUB_TOKEN` environment variable.
+3. `gh auth token` from the GitHub CLI.
+
+Public organization memberships are fetched without requesting `read:org`. Publishing requires a saved TopSignal login and the profile identity must match that account. Credentials are stored in `~/.topsignal/auth.json` with permissions `0600`.
 
 ## Commands
 
-### `login`
+### `collect <username>`
 
-Authenticate with GitHub using the OAuth device flow. Opens a browser prompt — no API key required. This verifies you own the GitHub username so you can publish profiles under it.
-
-```bash
-topsignal login
-```
-
-Credentials are stored in `~/.topsignal/auth.json` (file permissions `0600`).
-
-### `logout`
-
-Remove the stored GitHub login. To revoke TopSignal’s GitHub authorization, remove it from **GitHub Settings → Applications → Authorized OAuth Apps**. [GitHub instructions](https://docs.github.com/en/apps/oauth-apps/using-oauth-apps/reviewing-your-authorized-oauth-apps).
+Collect profile data and evidence without running AI analysis. `analyze` remains an alias for collection; the former provider, model, prompts and consent flags have been removed.
 
 ```bash
-topsignal logout
+topsignal collect jona --output profile.json --evidence evidence.json
+topsignal collect jona --dir ~/Code --output profile.json --evidence evidence.json --stats
 ```
 
----
+| Flag                   | Description                                                      |
+| ---------------------- | ---------------------------------------------------------------- |
+| `--evidence <file>`    | Required private evidence destination, separate from the profile |
+| `-o, --output <file>`  | Write profile JSON to a file; otherwise stdout                   |
+| `--dir <dir>`          | Directory to scan for local Git repositories                     |
+| `-d, --depth <n>`      | Maximum scan depth, default 3                                    |
+| `--exclude <patterns>` | Comma-separated repository names or patterns to exclude          |
+| `--stats`              | Print collection counts and evidence size to stderr              |
 
-### `analyze <username>`
+GitHub fetch limits:
 
-Fetches GitHub data and optionally scans a local directory for git repositories, then runs AI analysis.
+| Flag                     | Default                                 |
+| ------------------------ | --------------------------------------- |
+| `--repos <n>`            | 50 repositories                         |
+| `--starred <n>`          | 50 starred repositories                 |
+| `--external-prs <n>`     | 30 external pull requests               |
+| `--issues <n>`           | 30 issues                               |
+| `--gists <n>`            | 30 gists                                |
+| `--dep-repos <n>`        | 10 repositories with dependency samples |
+| `--commit-repos <n>`     | 6 repositories with recent commits      |
+| `--commits-per-repo <n>` | 10 recent commits per repository        |
+| `--blob-repos <n>`       | 5 repositories with code samples        |
+| `--files-per-blob <n>`   | 3 files per sampled GitHub repository   |
+
+Limits accept integers from 1 to 100. `--dep-repos`, `--commit-repos`, `--blob-repos` and `--files-per-blob` also accept 0 to skip sampling. Local repositories contribute up to 15 sampled source files and 30 recent commits each; use `git-log` for a different sample size.
+
+### `analysis-prompt [all|knowledge|overview]`
+
+Print versioned, provider-independent assessment instructions for a harness. Default `all` includes the shared evidence/attribution/privacy rules, technical knowledge rubric, developer overview rubric, and exact requested JSON Schema. It never reads your evidence or calls a model.
 
 ```bash
-# GitHub only
-topsignal analyze torvalds
-
-# GitHub + local repos
-topsignal analyze torvalds --dir ~/Code
-
-# With options
-topsignal analyze torvalds --dir ~/Code --output profile.json --depth 5 --stats
+topsignal analysis-prompt --output assessment-prompt.md
+topsignal analysis-prompt knowledge
+topsignal analysis-prompt overview
+topsignal analysis-prompt --json > prompt-manifest.json
 ```
 
-| Flag                    | Description                                                          |
-| ----------------------- | -------------------------------------------------------------------- |
-| `--dir <dir>`           | Directory to scan for git repositories (defaults to none)            |
-| `-p, --provider <name>` | `anthropic` or `openai`                                              |
-| `-m, --model <model>`   | Override the default model                                           |
-| `-o, --output <file>`   | Write JSON to a file instead of stdout                               |
-| `-d, --depth <n>`       | Max directory depth to scan (default: `3`)                           |
-| `--exclude <patterns>`  | Comma-separated repo names or patterns to exclude from scanning      |
-| `-y, --yes`             | Skip confirmation prompt before sending data to LLM                  |
-| `--prompts <dir>`       | Directory with custom prompt templates                               |
-| `--stats`               | Print a rich statistics panel after completion (see [Stats](#stats)) |
+`--output <file>` writes the result instead of stdout. `--json` includes the prompt version, section, content/source SHA-256 hashes, schema, and an estimated token count (characters ÷ 4, not actual model usage). `--prompts <dir>` explicitly overrides section Markdown; missing files fall back to bundled sections. Shared rules always remain bundled, and no implicit home override is loaded. Custom text is literal; the harness supplies evidence separately.
 
-**GitHub fetching limits** — control how much data is pulled from GitHub:
+The prompt assets under `prompts/` preserve the purpose of the former analyzer prompts while making review methodology explicit and independent of any provider. The rubrics cover implementation evidence, attribution, confidence, calibrated seniority, safe citations, contradictions, missing evidence, and context/output accounting.
 
-| Flag                     | Description                          | Default |
-| ------------------------ | ------------------------------------ | ------- |
-| `--repos <n>`            | Max repos to fetch                   | `50`    |
-| `--starred <n>`          | Max starred repos to fetch           | `50`    |
-| `--external-prs <n>`     | Max external PRs to fetch            | `30`    |
-| `--issues <n>`           | Max issues to fetch                  | `30`    |
-| `--gists <n>`            | Max gists to fetch                   | `30`    |
-| `--dep-repos <n>`        | Repos to fetch dependency files from | `10`    |
-| `--commit-repos <n>`     | Repos to fetch recent commits from   | `6`     |
-| `--commits-per-repo <n>` | Commits to fetch per repo            | `10`    |
-| `--blob-repos <n>`       | Repos to sample code blobs from      | `5`     |
-| `--files-per-blob <n>`   | Code files to fetch per blob repo    | `3`     |
+### `analysis-schema`
 
-Fetch limits accept integers from 1 to 100. Set `--dep-repos`, `--commit-repos`, `--blob-repos`, or `--files-per-blob` to 0 to skip that sampling. The same ranges apply to environment variables and the [configuration file](#configuration).
+Print the JSON Schema for harness-produced analysis to stdout. Knowledge includes technology inventory and ten evidence categories. Overview includes summary, role fit, strengths, concerns and project highlights. No provider-specific fields are required or accepted.
 
-**Consent prompt** — before contacting the AI provider, press `v` to preview the exact prompts, including sampled files and GitHub profile fields. Press `y` to approve, or pass `-y` to approve without a preview.
+### `attach-analysis <profile> <analysis>`
 
-Progress messages go to stderr; JSON output goes to stdout.
-
----
-
-### `github-profile [username]`
-
-Fetch raw GitHub profile data without running AI analysis.
+Validate harness analysis and add it to the profile. Replaces the existing `analysis` object and updates `analyzedAt`; collected identity and statistics are preserved. Unknown analysis fields, invalid types/enums, unsafe project URLs and recognized credentials are rejected.
 
 ```bash
-topsignal github-profile
-topsignal github-profile torvalds
+topsignal attach-analysis profile.json analysis.json --output completed-profile.json
 ```
 
----
-
-### `scan-repos [dir]`
-
-Find git repositories under a directory.
-
-```bash
-topsignal scan-repos ~/Code
-topsignal scan-repos --depth 5
-```
-
-| Flag              | Description                                |
-| ----------------- | ------------------------------------------ |
-| `-d, --depth <n>` | Max directory depth to scan (default: `3`) |
-
----
-
-### `git-log <repo-path>`
-
-Analyze a single local git repository and print structured commit/file data.
-
-```bash
-topsignal git-log ~/Code/myproject
-topsignal git-log ~/Code/myproject --commits 500 --blobs 30
-```
-
-| Flag                | Description                              |
-| ------------------- | ---------------------------------------- |
-| `-n, --commits <n>` | Max commits to retrieve (default: `200`) |
-| `-b, --blobs <n>`   | Max code files to read (default: `15`)   |
-
----
+Omit `--output` to write completed profile JSON to stdout. Both inputs are read before writing output, so the output may be the original profile file.
 
 ### `publish <file>`
 
-Publish an `analyze` profile JSON to the TopSignal API. Log in first with `topsignal login`. The profile’s identity and any `--username` override must match the logged-in GitHub account.
+Upload the completed profile to the official TopSignal API. The API validates, stores and serves it; it does not run analysis. Private collection artifacts are rejected by the CLI before network access. Review the public analysis text before publishing, including any local repository names or file paths mentioned by the harness.
 
 ```bash
-topsignal publish profile.json
-topsignal publish profile.json --username torvalds
-# ✔ Profile URL: https://www.topsignal.dev/torvalds
+topsignal publish completed-profile.json
 ```
 
-| Flag                        | Description                                            |
-| --------------------------- | ------------------------------------------------------ |
-| `-u, --username <username>`  | Optional username, which must match the login session  |
+Optional `--username <username>` must match the saved login. The API limits the upload to 1 MiB.
 
-## Privacy & Security
+### Other commands
 
-- **Local scans** sample Git-tracked regular files from the working tree under the selected directory. The scanner skips symlinks and untracked files, including ignored files. Uncommitted edits to tracked files can be included, so review the prompts before sending.
-- **AI inputs** are screened for common credentials and private keys. The scanner omits files with detected secrets and redacts matches in AI prompt metadata. Preview prompts before sharing sensitive work.
-- **GitHub data** includes profile README text and review repository names only when the repository is explicitly public.
-- **Publishing** sends the selected JSON and your GitHub login token to the official TopSignal HTTPS endpoint. Review the JSON before publishing it.
-- **Remote URLs** have embedded credentials removed. Common sensitive filenames such as `.env` and key files are excluded from source samples.
-- **Repository exclusions** can be set in `.topsignalignore` at the scan root, with one name or pattern per line. Lines starting with `#` are comments.
-
-## Output shape
-
-`analyze` outputs a `DeveloperProfile`. Recent commits are linked to the profile’s GitHub account. `closedAssignedIssues` lists sampled closed issues assigned to that account. The legacy `issuesResolved` field is empty because assignment does not identify who resolved an issue.
-
-```jsonc
-{
-  "identity": { "username": "...", "followers": 0, ... },
-  "repos": [...],
-  "languageStats": { "ranked": [...], "topLanguages": [...] },
-  "superlatives": { "mostStarredRepo": "...", ... },
-  "contributionCounts": { "totalCommits": 0, ... },
-  "analysis": {
-    "knowledge": {
-      "techStack": [...],
-      "architecturePatterns": [...],
-      "csFundamentals": [...],
-      ...
-    },
-    "overview": {
-      "executiveSummary": "...",
-      "seniorityLevel": "senior",
-      "roleFit": { "primary": "...", "environment": "startup" },
-      "strengths": [...],
-      "standoutProjects": [...],
-      "hiringRecommendation": "..."
-    }
-  },
-  "analyzedAt": "2025-01-01T00:00:00.000Z"
-}
+```bash
+topsignal login                       # Authenticate using GitHub device flow
+topsignal logout                      # Remove the saved local session
+topsignal github-profile [username]   # Raw GitHub profile, no local evidence
+topsignal scan-repos ~/Code --depth 3 # Find Git repositories
+topsignal git-log ~/Code/myproject --commits 200 --blobs 15
 ```
 
-## Stats
+Logout removes local credentials. To revoke GitHub authorization, remove TopSignal in GitHub Settings → Applications → Authorized OAuth Apps.
 
-Pass `--stats` to the `analyze` command to display a terminal panel (rendered with [Ink](https://github.com/vadimdemedes/ink)) showing:
+## Evidence and privacy
 
-- **Remote repos** and **local repos** included in the analysis, with per-repo file counts
-- **Code files** — total files analyzed, character counts, smallest/largest files
-- **Language breakdown** — bar chart of languages by file count
-- **Prompt estimate** — total input characters and estimated token count
+- Only Git-tracked regular files are sampled. Symlinks, untracked files, sensitive filenames and files containing recognized credentials are excluded. Tracked working-tree edits can be included, even when the tracked path matches an ignore rule.
+- Evidence has `schemaVersion: 1`, `username`, `collectedAt`, `localRepos`, `codeBlobs`, `dependencyFiles` and `limitations`. Repository paths are relative to the scan root; source paths are relative to their repository. Git metadata includes author names, not email addresses. Evidence files are written atomically with permissions `0600`.
+- Collection contacts GitHub. TopSignal never sends source samples to a model. The harness controls any subsequent model use.
+- Publishing sends the selected profile and authentication token only to `https://api.topsignal.dev/publish`. Evidence files stay separate. Analysis evidence strings are public prose and may cite files, so keep sensitive details out of the harness result.
+- Public GitHub repository association and local author names do not prove individual authorship. Use account-linked commits and pull requests for personal claims. Closed assigned issues are assignment context, not proof of resolution.
+- Secret screening is best effort. Review evidence before sharing it with a harness, and review the final JSON before publishing.
+- A `.topsignalignore` file at the scan root can exclude repositories, with one name or pattern per line and `#` comments.
 
-Stats are printed to stderr so they don't interfere with JSON output.
+The legacy `analyzedAt` timestamp records collection time until analysis is attached, then attachment time. The existing public `analysis.knowledge` and `analysis.overview` structure remains compatible with published profiles and the website.
 
-## Configuration
+## Fetch configuration
 
-### Custom prompts
-
-Override the default LLM prompts by placing Markdown files in `~/.topsignal/prompts/`:
-
-- `knowledge.md` — prompt for the tech stack / knowledge analysis
-- `overview.md` — prompt for the executive summary / seniority analysis
-
-Templates support `{{variable}}` interpolation. Pass a different directory with `--prompts <dir>`.
-
-### Fetch limits
-
-GitHub fetching limits are resolved in this order (highest priority first):
-
-1. **CLI flags** (`--repos`, `--starred`, etc.)
-2. **Environment variables** (`TOPSIGNAL_REPOS`, `TOPSIGNAL_STARRED`, etc.)
-3. **Config file** at `~/.topsignal/config.json`
-4. **Built-in defaults**
-
-The config file is a JSON object with the same keys as the `FetchLimits` interface:
+Fetch limits resolve in order: CLI flags → environment variables → `~/.topsignal/config.json` → built-in defaults. For example:
 
 ```json
-{
-  "repos": 100,
-  "starred": 25,
-  "blobRepos": 10,
-  "filesPerBlobRepo": 5
-}
+{ "repos": 100, "starred": 25, "blobRepos": 10, "filesPerBlobRepo": 5 }
 ```
 
-Full list of environment variables:
-
-| Variable                        | Limit                       |
-| ------------------------------- | --------------------------- |
-| `TOPSIGNAL_REPOS`               | Repositories to fetch       |
-| `TOPSIGNAL_STARRED`             | Starred repositories        |
-| `TOPSIGNAL_ORGS`                | Organizations               |
-| `TOPSIGNAL_CONTRIBUTED_REPOS`   | Contributed-to repositories |
-| `TOPSIGNAL_PR_REVIEWS`          | PR review contributions     |
-| `TOPSIGNAL_EXTERNAL_PRS`        | External PRs                |
-| `TOPSIGNAL_ISSUES`              | Issues                      |
-| `TOPSIGNAL_GISTS`               | Gists                       |
-| `TOPSIGNAL_DEP_FILE_REPOS`      | Repos for dependency files  |
-| `TOPSIGNAL_COMMIT_REPOS`        | Repos for recent commits    |
-| `TOPSIGNAL_COMMITS_PER_REPO`    | Commits per repo            |
-| `TOPSIGNAL_BLOB_REPOS`          | Repos for code blobs        |
-| `TOPSIGNAL_FILES_PER_BLOB_REPO` | Files per blob repo         |
+Environment variables are `TOPSIGNAL_REPOS`, `TOPSIGNAL_STARRED`, `TOPSIGNAL_ORGS`, `TOPSIGNAL_CONTRIBUTED_REPOS`, `TOPSIGNAL_PR_REVIEWS`, `TOPSIGNAL_EXTERNAL_PRS`, `TOPSIGNAL_ISSUES`, `TOPSIGNAL_GISTS`, `TOPSIGNAL_DEP_FILE_REPOS`, `TOPSIGNAL_COMMIT_REPOS`, `TOPSIGNAL_COMMITS_PER_REPO`, `TOPSIGNAL_BLOB_REPOS` and `TOPSIGNAL_FILES_PER_BLOB_REPO`.
 
 ## Development
 
 ```bash
 npm install
-npm run build      # compile TypeScript
-npm test           # build and run regression tests
-npm run dev        # watch mode
-npm run format     # prettier
+npm run build
+npm test
+npm run dev
+npm run format
 ```
+
+Builds clean `dist` before compiling so removed provider code cannot remain in the package. `npm pack` and `npm publish` also run that clean build through `prepack`. Progress and statistics go to stderr; stdout remains JSON.

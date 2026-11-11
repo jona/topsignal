@@ -4,6 +4,7 @@ import ora from "ora";
 import { PUBLISH_ENDPOINT } from "../env.js";
 import { loadAuth } from "../github/device-flow.js";
 import { withSpinner } from "../ui/spinner.js";
+import { assertProfile } from "../analysis.js";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -49,6 +50,7 @@ export async function publish(file: string, opts: PublishOptions) {
         "Profile JSON must contain an identity object and a repos array."
       );
     }
+    assertProfile(profile);
     const profileUsername = profile.identity.username;
     if (
       typeof profileUsername !== "string" ||
